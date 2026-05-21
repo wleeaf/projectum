@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "projectum"
+version = "1.0.0"
+description = "Keyboard-first desktop tracker for the projects, playlists, and notes that live in a folder on your disk."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "wleeaf" }]
+requires-python = ">=3.10"
+keywords = ["pyside6", "qt", "project-tracker", "notes", "youtube", "playlists"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Desktop Environment",
+]
+dependencies = [
+    "PySide6>=6.5",
+    "yt-dlp>=2024.0",
+]
+
+[project.scripts]
+projectum = "projectum.app:run"
+
+[project.urls]
+Homepage = "https://github.com/ts-solidarity/projectum"
+Issues = "https://github.com/ts-solidarity/projectum/issues"
+
+[tool.setuptools]
+packages = ["projectum"]
+
+[tool.setuptools.package-data]
+projectum = ["assets/*.svg"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# Keep CI noise low — we ship a GUI app, not a library, and the existing
+# import grouping favors readability over alphabetical ordering.
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # long lines (Qt stylesheets get long)
+    "E731",  # lambdas (used a lot for signal handlers)
+    "E402",  # late imports (some PySide6 imports happen inside methods)
+    "E741",  # ambiguous l var (legacy QVBoxLayout l = )
+]
+
+[tool.ruff.lint.per-file-ignores]
+"projectum/theme.py" = ["E501"]

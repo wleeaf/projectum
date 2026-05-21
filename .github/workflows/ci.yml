@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      # PySide6 needs a few X libs available to import on Linux runners.
+      - name: Install Linux GUI deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libegl1 libxkbcommon0 libxkbcommon-x11-0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-sync1 libxcb-xfixes0 \
+            libxcb-xinerama0 libxcb-cursor0 libdbus-1-3 libgl1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff
+
+      - name: Lint (ruff)
+        run: ruff check projectum
+
+      - name: Compile-check all modules
+        run: python -m compileall -q projectum
+
+      - name: Smoke-import GUI on a headless display
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -c "from projectum import app, anims, store, theme, widgets, youtube; print('imports OK')"
+          python -c "from projectum import theme; theme.apply_theme('dark'); s = theme.build_stylesheet(); assert len(s) > 500, 'stylesheet too short'; print('theme OK')"
+
+      - name: Boot the MainWindow off-screen
+        if: runner.os != 'Windows'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python - <<'PY'
+          import sys
+          from PySide6.QtWidgets import QApplication
+          from PySide6.QtCore import QTimer
+          from projectum.app import MainWindow
+          from projectum import theme
+          app = QApplication(sys.argv)
+          theme.apply_theme("dark")
+          app.setStyleSheet(theme.build_stylesheet())
+          w = MainWindow()
+          w.show()
+          QTimer.singleShot(150, app.quit)
+          sys.exit(app.exec())
+          PY
