@@ -302,7 +302,12 @@ class ProjectRow(QWidget):
         self.toggle.toggled.connect(self._restyle_name)
         layout.addWidget(self.toggle, alignment=Qt.AlignmentFlag.AlignTop)
 
-        col = QVBoxLayout()
+        # Stored as a member so _populate_tags can invalidate it directly —
+        # the col layout caches its sizeHint independently of the row's
+        # outer layout, so without this the row keeps its with-tags
+        # height after the last tag is removed.
+        self._col_layout = QVBoxLayout()
+        col = self._col_layout
         col.setSpacing(4)
         col.setContentsMargins(0, 0, 0, 0)
 
@@ -360,27 +365,32 @@ class ProjectRow(QWidget):
                 w.deleteLater()
         if not self.project.tags:
             self._tag_wrap.setVisible(False)
-            return
-        for t in self.project.tags[:3]:
-            chip = TagChip(t, tag_color(t, self.store.tag_colors))
-            chip.setToolTip(f"#{t} · right-click to change color")
-            chip.right_clicked.connect(
-                lambda tag=t: self.tag_right_clicked.emit(tag)
-            )
-            self._tag_layout.addWidget(chip)
-        if len(self.project.tags) > 3:
-            more = QLabel(f"+{len(self.project.tags) - 3}")
-            more.setStyleSheet(
-                f"color: {theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;"
-            )
-            self._tag_layout.addWidget(more)
-        self._tag_layout.addStretch()
-        self._tag_wrap.setVisible(True)
-        # Force the layout to recompute synchronously so the caller's
-        # subsequent sizeHint() reflects the new chips, and so chips have
-        # non-zero geometry before the next paint.
-        self._tag_layout.activate()
-        self._tag_wrap.updateGeometry()
+        else:
+            for t in self.project.tags[:3]:
+                chip = TagChip(t, tag_color(t, self.store.tag_colors))
+                chip.setToolTip(f"#{t} · right-click to change color")
+                chip.right_clicked.connect(
+                    lambda tag=t: self.tag_right_clicked.emit(tag)
+                )
+                self._tag_layout.addWidget(chip)
+            if len(self.project.tags) > 3:
+                more = QLabel(f"+{len(self.project.tags) - 3}")
+                more.setStyleSheet(
+                    f"color: {theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;"
+                )
+                self._tag_layout.addWidget(more)
+            self._tag_layout.addStretch()
+            self._tag_wrap.setVisible(True)
+            self._tag_layout.activate()
+            self._tag_wrap.updateGeometry()
+        # Invalidate every layout in the row tree — col is what holds the
+        # tag_wrap, so its cached sizeHint is the one that goes stale
+        # when the wrap toggles visible/hidden. The outer row layout
+        # then re-queries col for a fresh height.
+        self._col_layout.invalidate()
+        if self.layout() is not None:
+            self.layout().invalidate()
+        self.updateGeometry()
 
     def _restyle_name(self, completed: bool) -> None:
         font = self.name_label.font()
@@ -1482,24 +1492,30 @@ class PlaylistRow(QWidget):
                 w.deleteLater()
         if not self.playlist.tags:
             self._tag_wrap.setVisible(False)
-            return
-        for t in self.playlist.tags[:3]:
-            chip = TagChip(t, tag_color(t, self.store.tag_colors))
-            chip.setToolTip(f"#{t} · right-click to change color")
-            chip.right_clicked.connect(
-                lambda tag=t: self.tag_right_clicked.emit(tag)
-            )
-            self._tag_layout.addWidget(chip)
-        if len(self.playlist.tags) > 3:
-            more = QLabel(f"+{len(self.playlist.tags) - 3}")
-            more.setStyleSheet(
-                f"color: {theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;"
-            )
-            self._tag_layout.addWidget(more)
-        self._tag_layout.addStretch()
-        self._tag_wrap.setVisible(True)
-        self._tag_layout.activate()
-        self._tag_wrap.updateGeometry()
+        else:
+            for t in self.playlist.tags[:3]:
+                chip = TagChip(t, tag_color(t, self.store.tag_colors))
+                chip.setToolTip(f"#{t} · right-click to change color")
+                chip.right_clicked.connect(
+                    lambda tag=t: self.tag_right_clicked.emit(tag)
+                )
+                self._tag_layout.addWidget(chip)
+            if len(self.playlist.tags) > 3:
+                more = QLabel(f"+{len(self.playlist.tags) - 3}")
+                more.setStyleSheet(
+                    f"color: {theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;"
+                )
+                self._tag_layout.addWidget(more)
+            self._tag_layout.addStretch()
+            self._tag_wrap.setVisible(True)
+            self._tag_layout.activate()
+            self._tag_wrap.updateGeometry()
+        # Invalidate the row's outer layout so the next sizeHint() picks
+        # up the new (possibly shorter) total height — see the matching
+        # comment in ProjectRow._populate_tags.
+        if self.layout() is not None:
+            self.layout().invalidate()
+        self.updateGeometry()
 
     def refresh(self) -> None:
         self.title_label.setText(self.playlist.title)

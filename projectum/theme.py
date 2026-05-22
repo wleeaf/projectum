@@ -460,8 +460,9 @@ QLineEdit, QTextEdit {{
 }}
 
 QLineEdit:focus, QTextEdit:focus {{
-    border-color: {ACCENT};
-    background-color: {SURFACE_3};
+    /* Quieter focus state — only the border lightens so writing in a
+       notes pane doesn't flash the whole background brighter. */
+    border-color: {TEXT_MUTED};
 }}
 
 QTextEdit#notes {{
