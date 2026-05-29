@@ -40,13 +40,15 @@ from __future__ import annotations
 
 from typing import Callable
 
+import math
+
 from PySide6.QtCore import (
-    QEasingCurve, QEvent, QObject, QPropertyAnimation, QSize, Qt, QTimer,
-    QVariantAnimation,
+    QEasingCurve, QElapsedTimer, QEvent, QObject, QPropertyAnimation, QSize, Qt,
+    QTimer, QVariantAnimation,
 )
 from PySide6.QtWidgets import (
-    QAbstractScrollArea, QGraphicsOpacityEffect, QLabel, QListWidget,
-    QListWidgetItem, QProgressBar, QStackedWidget, QWidget,
+    QAbstractScrollArea, QApplication, QGraphicsOpacityEffect, QLabel,
+    QListWidget, QListWidgetItem, QProgressBar, QStackedWidget, QWidget,
 )
 
 
@@ -406,41 +408,52 @@ def animate_progress(
 
 
 class SmoothScrollFilter(QObject):
-    """Animate ``QAbstractScrollArea`` wheel scrolling.
+    """Glide a ``QAbstractScrollArea`` toward an accumulating target on the
+    mouse wheel.
 
-    Tracks an explicit target value so successive wheel notches compose
-    (each one extends the target), and resets that target whenever the
-    scrollbar's value changes for any reason other than our own animation
-    — this is what prevents the "scroll stops working after a while"
-    failure mode where the cached target drifts out of sync with the
-    actual scrollbar (e.g. after `setCurrentRow`, model reload, or
-    the user grabs the scrollbar by hand) and we end up animating to a
-    no-op delta on every event.
+    Each wheel notch extends a single ``_target_value``; a frame timer eases
+    the scrollbar toward it with **frame-rate-independent** damping. Because
+    the motion is one continuous lerp (not a fresh ease-out per notch), fast
+    wheel spins glide smoothly instead of stuttering as each notch restarts a
+    deceleration from a standstill.
+
+    Trackpad / high-precision wheels (which carry a ``pixelDelta``) are left to
+    native pixel scrolling — already smooth, lower-latency, and momentum-aware.
+
+    Tunables: :attr:`PIXELS_PER_NOTCH` (distance per notch) and :attr:`TAU_MS`
+    (easing time constant — smaller is snappier, larger is glidier).
     """
 
-    DURATION_MS = 150
-    PIXELS_PER_NOTCH = 120
+    PIXELS_PER_NOTCH = 110
+    TAU_MS = 90.0
 
     def __init__(self, target: QAbstractScrollArea):
         super().__init__(target)
         self._target = target
         self._sb = target.verticalScrollBar()
-        self._anim = QPropertyAnimation(self._sb, b"value", self)
-        self._anim.setDuration(self.DURATION_MS)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._end_target: int | None = None
-        self._animating = False
-        self._anim.finished.connect(self._on_finished)
-        # External scroll-bar changes (keyboard, drag, programmatic) must
-        # void our cached end target — otherwise the next wheel event
-        # tries to compose against a stale value and may resolve to a
-        # no-op delta.
-        self._sb.valueChanged.connect(self._on_sb_value_changed)
-        # 1.5s of wheel idleness clears any state too, as a backstop.
-        self._idle = QTimer(self)
-        self._idle.setSingleShot(True)
-        self._idle.setInterval(1500)
-        self._idle.timeout.connect(self._reset)
+        self._target_value = float(self._sb.value())
+        self._driving = False  # True while WE are setting the scrollbar value
+        self._clock = QElapsedTimer()
+        self._clock.start()
+        self._timer = QTimer(self)
+        # Tick near the display refresh so the glide is as smooth as the panel
+        # allows (~8 ms on 120 Hz, ~16 ms on 60 Hz).
+        self._timer.setInterval(self._frame_interval_ms())
+        self._timer.timeout.connect(self._tick)
+        # Any scrollbar change WE didn't cause (keyboard, drag, programmatic,
+        # model reload) re-anchors the target, so the next notch composes
+        # against the real value rather than a stale one.
+        self._sb.valueChanged.connect(self._on_external_change)
+
+    def _frame_interval_ms(self) -> int:
+        rate = 60.0
+        app = QApplication.instance()
+        screen = self._target.screen() if hasattr(self._target, "screen") else None
+        if screen is None and app is not None:
+            screen = app.primaryScreen()
+        if screen is not None and screen.refreshRate() > 0:
+            rate = screen.refreshRate()
+        return max(6, min(16, int(round(1000.0 / rate))))
 
     @classmethod
     def install(cls, view: QAbstractScrollArea) -> "SmoothScrollFilter":
@@ -448,75 +461,64 @@ class SmoothScrollFilter(QObject):
         view.viewport().installEventFilter(f)
         return f
 
-    def _on_finished(self) -> None:
-        self._animating = False
-        self._end_target = None
+    def _set_value(self, value: int) -> None:
+        # Guard so the resulting valueChanged isn't mistaken for an external
+        # change (which would void our target mid-glide).
+        self._driving = True
+        self._sb.setValue(value)
+        self._driving = False
 
-    def _on_sb_value_changed(self, v: int) -> None:
-        if not self._animating:
-            self._end_target = None
+    def _on_external_change(self, v: int) -> None:
+        if not self._driving:
+            self._target_value = float(v)
+
+    def _tick(self) -> None:
+        sb = self._sb
+        # Re-clamp every frame: a rebuild may have shrunk the range mid-glide.
+        self._target_value = max(
+            sb.minimum(), min(sb.maximum(), self._target_value)
+        )
+        cur = sb.value()
+        diff = self._target_value - cur
+        if abs(diff) < 0.5:
+            self._set_value(int(round(self._target_value)))
+            self._timer.stop()
             return
-        # An external value change DURING our animation (keyboard, drag,
-        # setCurrentRow, model reload) must also void the cached target —
-        # otherwise the next wheel notch composes against a stale value and
-        # jumps back. Tell ours apart from external ones by comparing against
-        # the animation's own current value.
-        current = self._anim.currentValue()
-        if current is not None and v != int(current):
-            self._anim.stop()
-            self._animating = False
-            self._end_target = None
-
-    def _reset(self) -> None:
-        if self._anim.state() == QPropertyAnimation.State.Running:
-            self._anim.stop()
-        self._animating = False
-        self._end_target = None
+        dt = self._clock.restart()
+        # Frame-rate-independent exponential damping toward the target.
+        alpha = 1.0 - math.exp(-dt / self.TAU_MS) if dt > 0 else 0.5
+        step = diff * alpha
+        if -1.0 < step < 1.0:  # guarantee ≥1px progress so it never crawls
+            step = 1.0 if diff > 0 else -1.0
+        self._set_value(int(round(cur + step)))
 
     def eventFilter(self, _obj, event):
         if event.type() != QEvent.Type.Wheel:
             return False
-        # Don't take over modifier-wheel (Ctrl=zoom in most apps).
+        # Don't take over modifier-wheel (Ctrl = zoom in most apps).
         if event.modifiers() != Qt.KeyboardModifier.NoModifier:
             return False
-        # Let high-precision / trackpad scrolling go to NATIVE handling.
-        # Those events carry a pixelDelta and already produce smooth,
-        # low-latency, momentum-aware pixel scrolling — intercepting them and
-        # re-animating over a tween only adds latency and caps them at the
-        # animation tick rate. We only smooth discrete mouse-wheel notches
-        # (pixelDelta is null for a classic wheel).
+        # Trackpad / high-precision wheels → native pixel scrolling.
         if not event.pixelDelta().isNull():
             return False
         delta_y = event.angleDelta().y()
         if delta_y == 0:
             return False
 
+        sb = self._sb
+        if not self._timer.isActive():
+            self._target_value = float(sb.value())  # re-anchor when idle
         notches = delta_y / 120.0
-        delta_px = -int(notches * self.PIXELS_PER_NOTCH)
-
-        # Compose against the in-flight end target if we're still animating,
-        # otherwise re-anchor on the scrollbar's current value.
-        if (self._animating
-                and self._end_target is not None
-                and self._anim.state() == QPropertyAnimation.State.Running):
-            base = self._end_target
-        else:
-            base = self._sb.value()
-
         new_target = max(
-            self._sb.minimum(),
-            min(self._sb.maximum(), base + delta_px),
+            sb.minimum(),
+            min(sb.maximum(), self._target_value - notches * self.PIXELS_PER_NOTCH),
         )
-        if new_target == self._sb.value():
-            # Nothing to scroll to — let Qt handle the event (e.g. parent
-            # area might take over) so we don't silently swallow it.
+        if int(round(new_target)) == sb.value() and not self._timer.isActive():
+            # Already at the bound — let the event propagate (e.g. a parent
+            # scroll area can take over).
             return False
-
-        self._end_target = new_target
-        self._animating = True
-        self._anim.stop()
-        self._anim.setStartValue(self._sb.value())
-        self._anim.setEndValue(new_target)
-        self._anim.start()
-        self._idle.start()
+        self._target_value = new_target
+        if not self._timer.isActive():
+            self._clock.restart()
+            self._timer.start()
         return True
