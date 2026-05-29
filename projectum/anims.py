@@ -41,6 +41,7 @@ from __future__ import annotations
 from typing import Callable
 
 import math
+import os
 
 from PySide6.QtCore import (
     QEasingCurve, QElapsedTimer, QEvent, QObject, QPropertyAnimation, QSize, Qt,
@@ -436,8 +437,13 @@ class SmoothScrollFilter(QObject):
         self._clock = QElapsedTimer()
         self._clock.start()
         self._timer = QTimer(self)
-        # Tick near the display refresh so the glide is as smooth as the panel
-        # allows (~8 ms on 120 Hz, ~16 ms on 60 Hz).
+        # PreciseTimer (not the default CoarseTimer) so the cadence actually
+        # tracks the display refresh instead of being snapped to coarse ticks.
+        self._timer.setTimerType(Qt.TimerType.PreciseTimer)
+        # Interval is (re)computed from the live screen when a glide starts —
+        # see eventFilter. The value here is just a sane initial guess; reading
+        # the refresh rate now (in __init__, before the window is shown) tends
+        # to report the primary screen's 60 Hz even on a 120 Hz panel.
         self._timer.setInterval(self._frame_interval_ms())
         self._timer.timeout.connect(self._tick)
         # Any scrollbar change WE didn't cause (keyboard, drag, programmatic,
@@ -446,13 +452,32 @@ class SmoothScrollFilter(QObject):
         self._sb.valueChanged.connect(self._on_external_change)
 
     def _frame_interval_ms(self) -> int:
-        rate = 60.0
-        app = QApplication.instance()
-        screen = self._target.screen() if hasattr(self._target, "screen") else None
-        if screen is None and app is not None:
-            screen = app.primaryScreen()
-        if screen is not None and screen.refreshRate() > 0:
-            rate = screen.refreshRate()
+        # Escape hatch: if Qt misreports the panel's refresh rate (some Linux
+        # setups report 60 Hz for a 120 Hz display), PROJECTUM_SCROLL_FPS forces
+        # the cadence, e.g. PROJECTUM_SCROLL_FPS=120.
+        override = os.environ.get("PROJECTUM_SCROLL_FPS")
+        if override:
+            try:
+                fps = float(override)
+                if fps > 0:
+                    return max(4, min(33, int(round(1000.0 / fps))))
+            except ValueError:
+                pass
+        # Prefer the screen the window is ACTUALLY shown on (accurate once the
+        # window is mapped), then the widget's screen, then the primary screen.
+        screen = None
+        win = self._target.window() if hasattr(self._target, "window") else None
+        handle = win.windowHandle() if win is not None else None
+        if handle is not None:
+            screen = handle.screen()
+        if screen is None and hasattr(self._target, "screen"):
+            screen = self._target.screen()
+        if screen is None:
+            app = QApplication.instance()
+            screen = app.primaryScreen() if app is not None else None
+        rate = screen.refreshRate() if screen is not None else 0.0
+        if rate <= 0:
+            rate = 60.0
         return max(6, min(16, int(round(1000.0 / rate))))
 
     @classmethod
@@ -519,6 +544,10 @@ class SmoothScrollFilter(QObject):
             return False
         self._target_value = new_target
         if not self._timer.isActive():
+            # Recompute the cadence from the screen the window is currently on
+            # (now that it's shown) so a 120 Hz panel actually gets ~8 ms ticks
+            # rather than the 60 Hz value read before the window existed.
+            self._timer.setInterval(self._frame_interval_ms())
             self._clock.restart()
             self._timer.start()
         return True
