@@ -28,6 +28,7 @@ from .theme import tag_color
 from .anims import (
     animate_progress, collapse_list_item, cross_fade_stack, fade_in,
     fade_out, fade_window, slide_in_height, slide_out_height,
+    SmoothScrollFilter,
 )
 from .widgets import (
     BrandMark, ColorPickerPopup, CommandPalette, CompletionToggle, FlowLayout,
@@ -169,8 +170,22 @@ class MainWindow(QMainWindow):
         # state; we hold one weak slot.
         self._settings_dialog: SettingsDialog | None = None
         self._command_palette: CommandPalette | None = None
+        # Smooth-scroll filters live as long as the window — held in a list
+        # so they aren't garbage collected.
+        self._scroll_filters: list[SmoothScrollFilter] = []
 
         self._build_ui()
+        # Install smooth-scroll on every list and notes editor.
+        for view in (
+            self.list_widget,
+            self.playlists_list_widget,
+            self.video_list_widget,
+            self.notes_edit,
+            self.playlist_notes_edit,
+            self.video_notes_edit,
+            self.global_notes_edit,
+        ):
+            self._scroll_filters.append(SmoothScrollFilter.install(view))
         # Stylesheet applied at QApplication level in run() so popups and
         # the settings dialog inherit. Theme changes call apply_app_styling.
         self._bind_shortcuts()

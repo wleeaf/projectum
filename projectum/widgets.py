@@ -367,15 +367,20 @@ class ProjectRow(QWidget):
         if not self.project.tags:
             self._tag_wrap.setVisible(False)
         else:
-            for t in self.project.tags[:3]:
+            # Cap at 2 chips: QHBoxLayout shrinks Fixed-policy children when
+            # the column can't accommodate them all, which clips the chip
+            # text. Two short-to-medium tag names reliably fit a ~340px
+            # sidebar; remainder is summarized as "+N".
+            visible_count = 2
+            for t in self.project.tags[:visible_count]:
                 chip = TagChip(t, tag_color(t, self.store.tag_colors))
                 chip.setToolTip(f"#{t} · right-click to change color")
                 chip.right_clicked.connect(
                     lambda tag=t: self.tag_right_clicked.emit(tag)
                 )
                 self._tag_layout.addWidget(chip)
-            if len(self.project.tags) > 3:
-                more = QLabel(f"+{len(self.project.tags) - 3}")
+            if len(self.project.tags) > visible_count:
+                more = QLabel(f"+{len(self.project.tags) - visible_count}")
                 more.setStyleSheet(
                     f"color: {theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;"
                 )
@@ -1669,15 +1674,16 @@ class PlaylistRow(QWidget):
         if not self.playlist.tags:
             self._tag_wrap.setVisible(False)
         else:
-            for t in self.playlist.tags[:3]:
+            visible_count = 2  # see ProjectRow._populate_tags
+            for t in self.playlist.tags[:visible_count]:
                 chip = TagChip(t, tag_color(t, self.store.tag_colors))
                 chip.setToolTip(f"#{t} · right-click to change color")
                 chip.right_clicked.connect(
                     lambda tag=t: self.tag_right_clicked.emit(tag)
                 )
                 self._tag_layout.addWidget(chip)
-            if len(self.playlist.tags) > 3:
-                more = QLabel(f"+{len(self.playlist.tags) - 3}")
+            if len(self.playlist.tags) > visible_count:
+                more = QLabel(f"+{len(self.playlist.tags) - visible_count}")
                 more.setStyleSheet(
                     f"color: {theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;"
                 )

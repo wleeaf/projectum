@@ -41,11 +41,12 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import (
-    QEasingCurve, QPropertyAnimation, QSize, QVariantAnimation, Qt,
+    QEasingCurve, QEvent, QObject, QPropertyAnimation, QSize, Qt, QTimer,
+    QVariantAnimation,
 )
 from PySide6.QtWidgets import (
-    QGraphicsOpacityEffect, QLabel, QListWidget, QListWidgetItem,
-    QProgressBar, QStackedWidget, QWidget,
+    QAbstractScrollArea, QGraphicsOpacityEffect, QLabel, QListWidget,
+    QListWidgetItem, QProgressBar, QStackedWidget, QWidget,
 )
 
 
@@ -351,3 +352,104 @@ def animate_progress(
     bar._progress_anim = anim
     anim.start()
     return anim
+
+
+# ──────────────────────── smooth wheel scrolling ────────────────────────
+
+
+class SmoothScrollFilter(QObject):
+    """Animate ``QAbstractScrollArea`` wheel scrolling.
+
+    Tracks an explicit target value so successive wheel notches compose
+    (each one extends the target), and resets that target whenever the
+    scrollbar's value changes for any reason other than our own animation
+    — this is what prevents the "scroll stops working after a while"
+    failure mode where the cached target drifts out of sync with the
+    actual scrollbar (e.g. after `setCurrentRow`, model reload, or
+    the user grabs the scrollbar by hand) and we end up animating to a
+    no-op delta on every event.
+    """
+
+    DURATION_MS = 220
+    PIXELS_PER_NOTCH = 120
+
+    def __init__(self, target: QAbstractScrollArea):
+        super().__init__(target)
+        self._target = target
+        self._sb = target.verticalScrollBar()
+        self._anim = QPropertyAnimation(self._sb, b"value", self)
+        self._anim.setDuration(self.DURATION_MS)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._end_target: int | None = None
+        self._animating = False
+        self._anim.finished.connect(self._on_finished)
+        # External scroll-bar changes (keyboard, drag, programmatic) must
+        # void our cached end target — otherwise the next wheel event
+        # tries to compose against a stale value and may resolve to a
+        # no-op delta.
+        self._sb.valueChanged.connect(self._on_sb_value_changed)
+        # 1.5s of wheel idleness clears any state too, as a backstop.
+        self._idle = QTimer(self)
+        self._idle.setSingleShot(True)
+        self._idle.setInterval(1500)
+        self._idle.timeout.connect(self._reset)
+
+    @classmethod
+    def install(cls, view: QAbstractScrollArea) -> "SmoothScrollFilter":
+        f = cls(view)
+        view.viewport().installEventFilter(f)
+        return f
+
+    def _on_finished(self) -> None:
+        self._animating = False
+        self._end_target = None
+
+    def _on_sb_value_changed(self, _v: int) -> None:
+        if not self._animating:
+            self._end_target = None
+
+    def _reset(self) -> None:
+        if self._anim.state() == QPropertyAnimation.State.Running:
+            self._anim.stop()
+        self._animating = False
+        self._end_target = None
+
+    def eventFilter(self, _obj, event):
+        if event.type() != QEvent.Type.Wheel:
+            return False
+        # Don't take over modifier-wheel (Ctrl=zoom in most apps).
+        if event.modifiers() != Qt.KeyboardModifier.NoModifier:
+            return False
+        delta_y = event.angleDelta().y()
+        if delta_y == 0:
+            return False
+
+        notches = delta_y / 120.0
+        delta_px = -int(notches * self.PIXELS_PER_NOTCH)
+
+        # Compose against the in-flight end target if we're still animating,
+        # otherwise re-anchor on the scrollbar's current value.
+        if (self._animating
+                and self._end_target is not None
+                and self._anim.state() == QPropertyAnimation.State.Running):
+            base = self._end_target
+        else:
+            base = self._sb.value()
+
+        new_target = max(
+            self._sb.minimum(),
+            min(self._sb.maximum(), base + delta_px),
+        )
+        if new_target == self._sb.value():
+            # Nothing to scroll to — let Qt handle the event (e.g. parent
+            # area might take over) so we don't silently swallow it.
+            return False
+
+        self._end_target = new_target
+        self._animating = True
+        self._anim.stop()
+        self._anim.setStartValue(self._sb.value())
+        self._anim.setEndValue(new_target)
+        self._anim.start()
+        self._idle.start()
+        return True
