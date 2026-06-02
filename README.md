@@ -101,7 +101,7 @@ Projectum remembers the last folder you opened, so later launches go straight ba
 
 **Command palette** — `Ctrl+K` from anywhere. Type to filter projects, playlists, videos, tags, and the scratchpad; `↑`/`↓` to navigate, `↵` to open, `Esc` to dismiss.
 
-**Settings** — The gear icon opens theme, font family (any installed family — type to filter), and font size (9–28 px). Changes apply immediately and persist.
+**Settings** — The gear icon opens dropdowns for theme (each previewed with a color swatch), font family (select-only, every family shown in its own font), and font size (preset pixels). Changes are staged and applied only when you click **Apply**, then persist across launches.
 
 ## Keyboard shortcuts
 

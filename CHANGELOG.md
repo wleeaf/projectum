@@ -3,6 +3,14 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] — 2026-06-02
+
+### Changed
+
+- **Settings is now dropdown-driven with an Apply button.** Font family is a select-only picker (each family previewed in its own font) and font size is a preset-pixel dropdown — no more typing either. The theme dropdown previews each palette with a color swatch (background + accent). Changes no longer apply live; they're staged and applied when you click **Apply** (enabled only when something changed), and Close/Esc dismisses without applying.
+
+[1.5.0]: https://github.com/wleeaf/projectum/releases/tag/v1.5.0
+
 ## [1.4.0] — 2026-06-02
 
 ### Added
