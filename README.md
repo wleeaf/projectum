@@ -77,7 +77,7 @@ Projectum remembers the last folder you opened, so later launches go straight ba
 - **Done + Tested toggles** per project — a green check and a blue one; tested projects render in blue in the sidebar.
 - **Pin & drag‑to‑reorder** projects and playlists; pinned items float to the top.
 - **Command palette (`Ctrl+K`)** over projects, playlists, videos, tags, and the scratchpad, with prefix‑match ranking and type‑ahead.
-- **9 built‑in themes** — Catppuccin Mocha & Latte, Nord, Dracula, Tokyo Night, Rosé Pine, Gruvbox, Solarized Dark & Light — plus **any installed font** at any size, switchable live.
+- **14 built‑in themes** — Catppuccin Mocha / Latte / Macchiato, Nord, Dracula, Tokyo Night, Rosé Pine, One Dark, GitHub Dark, Everforest, Gruvbox Dark / Light, Solarized Dark / Light — every one held to a WCAG contrast bar so text stays readable, with a smooth crossfade when you switch. Plus **any installed font** at any size, all switchable live.
 - **Frameless, animated UI** with smooth wheel scrolling, custom title bar, edge‑resize, and flicker‑free crossfade transitions.
 - **Resilient state.** Writes are atomic; a folder that disappears (rename, `git checkout`) has its metadata preserved and restored when it returns.
 
@@ -135,7 +135,7 @@ projectum/
 │   ├── app.py               # MainWindow + run()
 │   ├── store.py             # Project / Playlist / Video / ProjectStore
 │   ├── widgets.py           # custom-painted widgets (chips, toggles, palette, …)
-│   ├── theme.py             # 9 themes + stylesheet builder
+│   ├── theme.py             # 14 themes + contrast helpers + stylesheet builder
 │   ├── anims.py             # crossfade / slide / progress / smooth-scroll helpers
 │   ├── youtube.py           # yt-dlp fetch runnable
 │   └── assets/icon.svg

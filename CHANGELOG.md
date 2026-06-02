@@ -3,6 +3,21 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] — 2026-06-02
+
+### Added
+
+- **Five new themes** — One Dark, GitHub Dark, Catppuccin Macchiato, Everforest Dark, and Gruvbox Light — bringing the total to **14**.
+- **Smooth theme transitions** — switching themes now crossfades the old appearance into the new one instead of snapping.
+- **A theme readability gate** — every theme is checked in CI against per-role WCAG contrast floors (body text ≥ 4.5; muted/semantic/accent text ≥ 3.0), so new themes can't ship unreadable.
+
+### Changed / Fixed
+
+- **Tag chips are now legible on every theme.** They previously painted the fixed pastel palette colors as text, which was unreadable on light backgrounds; the chip text/border now uses a contrast-adjusted "ink" (hue preserved) derived from the tag color and the active theme.
+- **Readability fixes across themes** — corrected 15 sub-floor colors (muted section labels and semantic status/git/error text on light themes; error text on Nord and Solarized Dark) so all text clears the contrast gate.
+
+[1.4.0]: https://github.com/ts-solidarity/projectum/releases/tag/v1.4.0
+
 ## [1.3.0] — 2026-05-30
 
 ### Added
