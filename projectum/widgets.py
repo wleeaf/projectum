@@ -61,6 +61,11 @@ class TagChip(QWidget):
         super().__init__(parent)
         self.tag = tag
         self._color = color
+        # The raw (often pastel) tag color is the chip FILL, but using it for
+        # text/border too is unreadable on light themes. Derive a legible ink
+        # once here (theme changes rebuild the rows, refreshing it) — never in
+        # paintEvent, which runs constantly while scrolling.
+        self._ink = theme.legible_ink(color, theme.SURFACE)
         self._removable = removable
         self._remove_hover = False
         if removable:
@@ -128,10 +133,11 @@ class TagChip(QWidget):
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
             base = QColor(self._color)
+            ink = QColor(self._ink)
             fill = QColor(base)
             fill.setAlpha(46)
-            border = QColor(base)
-            border.setAlpha(140)
+            border = QColor(ink)
+            border.setAlpha(150)
 
             rect = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
             p.setBrush(QBrush(fill))
@@ -139,7 +145,7 @@ class TagChip(QWidget):
             radius = rect.height() / 2
             p.drawRoundedRect(rect, radius, radius)
 
-            p.setPen(base)
+            p.setPen(ink)
             p.setFont(self.font())
             text_rect = QRectF(rect)
             if self._removable:
@@ -157,7 +163,7 @@ class TagChip(QWidget):
             p.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, label)
 
             if self._removable:
-                self._paint_remove_glyph(p, base)
+                self._paint_remove_glyph(p, ink)
 
     def _paint_remove_glyph(self, p: QPainter, base: QColor) -> None:
         box = self._remove_rect()

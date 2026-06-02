@@ -46,16 +46,16 @@ LIGHT_THEME = {
     "BORDER": "#bcc0cc",
     "TEXT": "#4c4f69",
     "TEXT_DIM": "#6c6f85",
-    "TEXT_MUTED": "#9ca0b0",
+    "TEXT_MUTED": "#797c88",
     "ACCENT": "#8839ef",
     "ACCENT_HOVER": "#7d34d9",
     "ACCENT_2": "#ea76cb",
-    "SUCCESS": "#40a02b",
-    "WARNING": "#df8e1d",
+    "SUCCESS": "#388d26",
+    "WARNING": "#ad6e16",
     "DANGER": "#d20f39",
     "DANGER_HOVER": "#c40d36",
     "LIST_HOVER": "rgba(220, 224, 232, 0.6)",
-    "INFO": "#04a5e5",
+    "INFO": "#0380b1",
 }
 
 NORD_THEME = {
@@ -66,13 +66,13 @@ NORD_THEME = {
     "BORDER": "#4c566a",
     "TEXT": "#eceff4",
     "TEXT_DIM": "#d8dee9",
-    "TEXT_MUTED": "#7b8794",
+    "TEXT_MUTED": "#8b95a1",
     "ACCENT": "#88c0d0",
     "ACCENT_HOVER": "#9bcfdc",
     "ACCENT_2": "#b48ead",
     "SUCCESS": "#a3be8c",
     "WARNING": "#ebcb8b",
-    "DANGER": "#bf616a",
+    "DANGER": "#cd858c",
     "DANGER_HOVER": "#cb727a",
     "LIST_HOVER": "rgba(67, 76, 94, 0.55)",
     "INFO": "#88c0d0",
@@ -86,7 +86,7 @@ DRACULA_THEME = {
     "BORDER": "#44475a",
     "TEXT": "#f8f8f2",
     "TEXT_DIM": "#bfbfbf",
-    "TEXT_MUTED": "#6272a4",
+    "TEXT_MUTED": "#8592b9",
     "ACCENT": "#bd93f9",
     "ACCENT_HOVER": "#c9a3fc",
     "ACCENT_2": "#ff79c6",
@@ -106,13 +106,13 @@ SOLARIZED_DARK_THEME = {
     "BORDER": "#0e4452",
     "TEXT": "#fdf6e3",
     "TEXT_DIM": "#eee8d5",
-    "TEXT_MUTED": "#586e75",
+    "TEXT_MUTED": "#7e8f94",
     "ACCENT": "#268bd2",
     "ACCENT_HOVER": "#3a9be0",
     "ACCENT_2": "#d33682",
     "SUCCESS": "#859900",
     "WARNING": "#b58900",
-    "DANGER": "#dc322f",
+    "DANGER": "#e04b48",
     "DANGER_HOVER": "#e64946",
     "LIST_HOVER": "rgba(14, 68, 82, 0.55)",
     "INFO": "#268bd2",
@@ -126,12 +126,12 @@ SOLARIZED_LIGHT_THEME = {
     "BORDER": "#dad4c4",
     "TEXT": "#073642",
     "TEXT_DIM": "#586e75",
-    "TEXT_MUTED": "#93a1a1",
+    "TEXT_MUTED": "#727d7d",
     "ACCENT": "#268bd2",
     "ACCENT_HOVER": "#1e7bbf",
     "ACCENT_2": "#d33682",
-    "SUCCESS": "#859900",
-    "WARNING": "#b58900",
+    "SUCCESS": "#758700",
+    "WARNING": "#9f7900",
     "DANGER": "#dc322f",
     "DANGER_HOVER": "#c52e2c",
     "LIST_HOVER": "rgba(231, 225, 207, 0.55)",
@@ -146,7 +146,7 @@ GRUVBOX_DARK_THEME = {
     "BORDER": "#504945",
     "TEXT": "#ebdbb2",
     "TEXT_DIM": "#bdae93",
-    "TEXT_MUTED": "#7c6f64",
+    "TEXT_MUTED": "#8c8077",
     "ACCENT": "#fabd2f",
     "ACCENT_HOVER": "#fbc658",
     "ACCENT_2": "#d3869b",
@@ -166,7 +166,7 @@ TOKYO_NIGHT_THEME = {
     "BORDER": "#2f3549",
     "TEXT": "#c0caf5",
     "TEXT_DIM": "#a9b1d6",
-    "TEXT_MUTED": "#565f89",
+    "TEXT_MUTED": "#6a7297",
     "ACCENT": "#7aa2f7",
     "ACCENT_HOVER": "#8db4f8",
     "ACCENT_2": "#bb9af7",
@@ -330,6 +330,64 @@ def tag_color(tag: str, overrides: dict | None = None) -> str:
         return overrides[tag]
     digest = hashlib.md5(tag.encode("utf-8")).digest()
     return TAG_PALETTE[digest[0] % len(TAG_PALETTE)]
+
+
+# ──────────────────────── contrast / legibility ────────────────────────
+
+
+def _hex_rgb(hex_color: str) -> tuple[int, int, int]:
+    h = hex_color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _rel_luminance(hex_color: str) -> float:
+    def lin(c: float) -> float:
+        c /= 255.0
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = _hex_rgb(hex_color)
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+
+
+def contrast_ratio(a: str, b: str) -> float:
+    """WCAG contrast ratio (1–21) between two ``#rrggbb`` colors."""
+    l1, l2 = _rel_luminance(a), _rel_luminance(b)
+    hi, lo = max(l1, l2), min(l1, l2)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+_ink_cache: dict[tuple, str] = {}
+
+
+def legible_ink(color: str, bg: str, target: float = 3.5) -> str:
+    """Return ``color`` adjusted (hue preserved) to reach at least ``target``
+    contrast against ``bg`` — darkened on a light background, lightened on a
+    dark one. Used for tag-chip text/border, which would otherwise be the raw
+    (pastel) tag color and unreadable on light themes. Memoized (never run this
+    in a paintEvent uncached).
+    """
+    key = (color, bg, target)
+    cached = _ink_cache.get(key)
+    if cached is not None:
+        return cached
+    out = color
+    try:
+        if contrast_ratio(color, bg) < target:
+            r, g, b = (float(c) for c in _hex_rgb(color))
+            darken = _rel_luminance(bg) > 0.4  # light bg → push the ink darker
+            cand = color
+            for _ in range(28):
+                if darken:
+                    r, g, b = r * 0.88, g * 0.88, b * 0.88
+                else:
+                    r, g, b = r + (255 - r) * 0.12, g + (255 - g) * 0.12, b + (255 - b) * 0.12
+                cand = "#%02x%02x%02x" % (round(r), round(g), round(b))
+                if contrast_ratio(cand, bg) >= target:
+                    break
+            out = cand
+    except (ValueError, IndexError):
+        out = color
+    _ink_cache[key] = out
+    return out
 
 
 # ──────────────────────── stylesheet builder ────────────────────────
