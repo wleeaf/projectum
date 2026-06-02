@@ -39,6 +39,16 @@ chmod +x Projectum-x86_64.AppImage
 
 The AppImage bundles Python, Qt, PySide6, and `yt-dlp`, and runs on any reasonably modern x86‑64 desktop (glibc ≥ 2.17).
 
+### Windows & macOS
+
+Grab `Projectum-windows-x64.exe` or `Projectum-macos.dmg` from the [latest release](https://github.com/ts-solidarity/projectum/releases/latest).
+
+> **Note:** these builds are **unsigned**, so the OS will warn on first launch.
+> - **Windows:** SmartScreen → **More info → Run anyway**.
+> - **macOS:** right‑click the app → **Open** (or System Settings → Privacy & Security → **Open Anyway**).
+>
+> If in doubt, running from source (below) avoids the warnings entirely.
+
 ### From source (Linux · macOS · Windows)
 
 Requires **Python ≥ 3.10**.
