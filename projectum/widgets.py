@@ -2594,6 +2594,9 @@ class _TrayChip(QWidget):
         self.item = item
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(28)
+        # Fixed width (from sizeHint) so the row scrolls horizontally instead of
+        # squeezing every chip into an unreadable sliver when there are many.
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setToolTip(f"{item.title}  ·  {item.home_name}  —  drag onto a day, or click")
         self._press_pos: QPoint | None = None
         self._view = None  # set by CalendarView so a drag can stash the item
@@ -2774,19 +2777,29 @@ class CalendarView(QWidget):
         self.grid.set_items(scheduled)
         self._populate_tray(unscheduled)
 
+    # The tray aggregates unscheduled items across every tracked folder, so it
+    # can be large on first use; render a bounded number and label the rest
+    # rather than building hundreds of chips on every rescan.
+    TRAY_LIMIT = 40
+
     def _populate_tray(self, unscheduled: list) -> None:
-        # Drop existing chips (everything before the trailing stretch).
+        # Drop existing chips/labels (everything before the trailing stretch).
         while self._tray_row.count() > 1:
             taken = self._tray_row.takeAt(0)
             w = taken.widget()
             if w is not None:
                 w.deleteLater()
-        for it in unscheduled:
+        for it in unscheduled[:self.TRAY_LIMIT]:
             chip = _TrayChip(it)
             chip._view = self
             chip.activated.connect(self.item_activated.emit)
             chip.context.connect(self.item_context.emit)
             self._tray_row.insertWidget(self._tray_row.count() - 1, chip)
+        overflow = len(unscheduled) - self.TRAY_LIMIT
+        if overflow > 0:
+            more = QLabel(f"+{overflow} more")
+            more.setObjectName("calTrayMore")
+            self._tray_row.insertWidget(self._tray_row.count() - 1, more)
         self._tray_label.setText(f"Unscheduled · {len(unscheduled)}")
         self._tray.setVisible(bool(unscheduled))
 

@@ -1243,6 +1243,13 @@ QLabel#calTrayLabel {{
     font-weight: 700;
 }}
 
+QLabel#calTrayMore {{
+    color: {TEXT_MUTED};
+    font-size: {max(size - 2, 10)}px;
+    font-weight: 600;
+    padding: 0 8px;
+}}
+
 QScrollArea#calTrayScroll {{
     background: transparent;
     border: none;

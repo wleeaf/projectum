@@ -308,6 +308,39 @@ def test_bar_drag_move_emits_reschedule(qapp):
     g.deleteLater()
 
 
+def test_tray_caps_render_with_overflow_label(qapp):
+    from projectum.widgets import CalendarView, _TrayChip
+    v = CalendarView()
+    v.set_items([_si("", kind="todo", title=f"t{i}", key=f"k{i}") for i in range(60)])
+    widgets = [v._tray_row.itemAt(i).widget() for i in range(v._tray_row.count())]
+    chips = [w for w in widgets if isinstance(w, _TrayChip)]
+    mores = [w for w in widgets if w is not None and w.objectName() == "calTrayMore"]
+    assert len(chips) == v.TRAY_LIMIT            # bounded render
+    assert "· 60" in v._tray_label.text()        # full count still shown
+    assert mores and "20 more" in mores[0].text()  # remainder labeled, not silent
+    v.deleteLater()
+
+
+def test_live_write_survives_store_reload(window, qapp, tmp_path):
+    # apply_dates -> save() triggers the dir watcher -> store.load(); that reload
+    # must not blow away the calendar, and the date must persist.
+    fa = _folder(tmp_path, "work", ["alpha"])
+    s = ProjectStore(fa)
+    s.add_todo("T")
+    s.save()
+    window.load_folder(fa)
+    window._calendar_items = cal.items_from_store(window.store)
+    window.calendar_view.set_items(window._calendar_items)
+    item = next(i for i in window._calendar_items if i.title == "T")
+
+    window._apply_schedule(item, "2026-06-05", "2026-06-07")
+    qapp.processEvents()
+    window.store.load()                          # simulate the watcher's reload
+    qapp.processEvents()
+    assert next(t for t in ProjectStore(fa).todos if t.text == "T").start == "2026-06-05"
+    assert window._calendar_items                # reload didn't clear the calendar
+
+
 def test_bar_click_without_drag_activates(qapp):
     from PySide6.QtGui import QMouseEvent
     from PySide6.QtCore import QEvent, Qt
