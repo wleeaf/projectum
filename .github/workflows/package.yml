@@ -1,0 +1,85 @@
+name: Package (Windows / macOS)
+
+# Manual only — these binaries are unsigned and iterated independently of the
+# tagged Linux release. Build artifacts are attached to the workflow run; once
+# a platform is proven they can be wired into the release pipeline.
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which platform(s) to build
+        type: choice
+        default: both
+        options: [both, windows, macos]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    if: ${{ inputs.platform == 'windows' || inputs.platform == 'both' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+      - name: Build Projectum.exe
+        run: pyinstaller --noconfirm --onefile --windowed --name Projectum main.py
+      - name: Sanity-check the binary launches (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          Start-Process -FilePath dist/Projectum.exe -PassThru | Out-Null
+          Start-Sleep -Seconds 8
+          if (Get-Process Projectum -ErrorAction SilentlyContinue) {
+            Write-Host "launched OK"; Stop-Process -Name Projectum -Force
+          } else {
+            Write-Error "Projectum.exe exited early"; exit 1
+          }
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Projectum-windows-x64
+          path: dist/Projectum.exe
+          if-no-files-found: error
+
+  macos:
+    if: ${{ inputs.platform == 'macos' || inputs.platform == 'both' }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+      - name: Build Projectum.app
+        run: pyinstaller --noconfirm --windowed --name Projectum main.py
+      - name: Sanity-check the app launches (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          ./dist/Projectum.app/Contents/MacOS/Projectum &
+          pid=$!
+          sleep 8
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "launched OK"; kill "$pid"
+          else
+            echo "Projectum.app exited early"; exit 1
+          fi
+      - name: Package .dmg
+        run: |
+          hdiutil create -volname Projectum -srcfolder dist/Projectum.app \
+            -ov -format UDZO Projectum.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Projectum-macos
+          path: Projectum.dmg
+          if-no-files-found: error
