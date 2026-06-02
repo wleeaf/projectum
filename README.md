@@ -10,6 +10,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![PySide6](https://img.shields.io/badge/PySide6-Qt%206-41cd52.svg)](https://doc.qt.io/qtforpython/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Sponsor](https://img.shields.io/github/sponsors/wleeaf?label=Sponsor&logo=githubsponsors&logoColor=white&color=ea4aaa)](https://github.com/sponsors/wleeaf)
 
 No servers. No accounts. No telemetry. Your data is one JSON file next to your work.
 
@@ -177,6 +178,10 @@ pip install python-appimage build
 ./packaging/appimage/build-appimage.sh
 # -> build/appimage/Projectum-x86_64.AppImage
 ```
+
+## Support
+
+Projectum is free, MIT‑licensed, and built in the open. If it's useful to you and you'd like to support continued development, you can [**sponsor the project on GitHub**](https://github.com/sponsors/wleeaf) — entirely optional, and Projectum will always stay free, with no servers, accounts, or telemetry.
 
 ## License
 

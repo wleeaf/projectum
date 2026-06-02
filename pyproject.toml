@@ -34,6 +34,7 @@ projectum = "projectum.app:run"
 [project.urls]
 Homepage = "https://github.com/wleeaf/projectum"
 Issues = "https://github.com/wleeaf/projectum/issues"
+Funding = "https://github.com/sponsors/wleeaf"
 
 [tool.setuptools]
 packages = ["projectum"]
