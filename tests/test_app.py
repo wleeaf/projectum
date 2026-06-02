@@ -20,9 +20,9 @@ def make_folder(base: Path, *names: str) -> Path:
     return root
 
 
-def test_boot_has_five_tabs(window):
+def test_boot_has_six_tabs(window):
     keys = [b.property("tab_key") for b in window._tab_group.buttons()]
-    assert keys == ["projects", "playlists", "todos", "calendar", "notes"]
+    assert keys == ["projects", "playlists", "todos", "calendar", "graph", "notes"]
 
 
 def test_load_folder_preserves_settings_and_geometry(window, tmp_path):

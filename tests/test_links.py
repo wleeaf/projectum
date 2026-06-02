@@ -156,3 +156,33 @@ def test_prune_links_on_todo_delete(window, qapp, tmp_path):
     assert window._link_store.degree(ref) == 1
     window._remove_todo(todo.id)                 # explicit deletion prunes edges
     assert window._link_store.degree(ref) == 0
+
+
+# ── graph view ──
+
+def test_graph_canvas_layout_and_hit(qapp, tmp_path):
+    from projectum.widgets import GraphCanvas
+    store = LinkStore(tmp_path / "l.json")
+    hub = make_ref("todo", "/r", "h")
+    store.add(hub, make_ref("project", "/r", "p1"))
+    store.add(hub, date_ref("2026-06-20"))
+    c = GraphCanvas(); c.resize(600, 600)
+    c.set_data(store, index_entities([("/r", "todo", "h", "Hub"), ("/r", "project", "p1", "P1")]))
+    c.set_focus(hub)
+    c._layout()
+    assert len(c._nodes) == 3 and c._nodes[0][0] == hub      # focus + 2 neighbours
+    assert c._node_at(c._nodes[0][1]) == hub                 # hit-test the focus node
+    assert c._node_at(c._nodes[1][1]) == c._nodes[1][0]      # hit-test a neighbour
+    c.deleteLater()
+
+
+def test_graph_view_focus_via_completer(qapp, tmp_path):
+    from projectum.widgets import GraphView
+    gv = GraphView()
+    gv.set_data(LinkStore(tmp_path / "l.json"),
+                index_entities([("/r", "project", "alpha", "Alpha service")]))
+    label = "Alpha service · Project"
+    assert label in gv._title_to_ref
+    gv._focus_from_completer(label)
+    assert gv.canvas.focus() == make_ref("project", "/r", "alpha")
+    gv.deleteLater()

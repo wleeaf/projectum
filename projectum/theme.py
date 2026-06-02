@@ -1415,6 +1415,25 @@ QPushButton#linksAddDate:hover {{
     border-color: {ACCENT};
     color: {ACCENT};
 }}
+
+/* ── Graph view ── */
+QLineEdit#graphSearch {{
+    background-color: {SURFACE_2};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    padding: 6px 10px;
+}}
+
+QLineEdit#graphSearch:focus {{
+    border-color: {ACCENT};
+}}
+
+QLabel#graphFocusLabel {{
+    color: {TEXT};
+    font-size: {size + 1}px;
+    font-weight: 600;
+}}
 """
 
 
