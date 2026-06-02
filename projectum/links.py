@@ -20,10 +20,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
-KIND_DATE = "date"
+KIND_DATE = "date"            # a single day:      key = "YYYY-MM-DD"
+KIND_DATERANGE = "daterange"  # an inclusive span: key = "START..END" (ISO dates)
+KIND_DELTA = "delta"          # an unanchored duration: key = total minutes (str)
 
 
 def _resolved(path_str: str) -> str:
@@ -52,6 +55,15 @@ class EntityRef:
     def is_date(self) -> bool:
         return self.kind == KIND_DATE
 
+    @property
+    def is_calendar(self) -> bool:
+        """Placeable on the calendar — a day or a span (not a bare duration)."""
+        return self.kind in (KIND_DATE, KIND_DATERANGE)
+
+    @property
+    def is_temporal(self) -> bool:
+        return self.kind in (KIND_DATE, KIND_DATERANGE, KIND_DELTA)
+
     def as_list(self) -> list[str]:
         return [self.kind, self.home, self.key]
 
@@ -73,6 +85,70 @@ def make_ref(kind: str, home: str, key: str) -> EntityRef:
 
 def date_ref(iso: str) -> EntityRef:
     return EntityRef(KIND_DATE, "", iso)
+
+
+def daterange_ref(start_iso: str, end_iso: str) -> EntityRef:
+    """A date frame (inclusive span). Endpoints are ordered for a canonical key."""
+    if end_iso < start_iso:
+        start_iso, end_iso = end_iso, start_iso
+    return EntityRef(KIND_DATERANGE, "", f"{start_iso}..{end_iso}")
+
+
+def parse_daterange(key: str) -> tuple[str, str] | None:
+    start, sep, end = key.partition("..")
+    return (start, end) if sep else None
+
+
+# ── delta (unanchored duration) ──
+_DELTA_UNITS = {"w": 10080, "week": 10080, "weeks": 10080,
+                "d": 1440, "day": 1440, "days": 1440,
+                "h": 60, "hr": 60, "hrs": 60, "hour": 60, "hours": 60,
+                "m": 1, "min": 1, "mins": 1, "minute": 1, "minutes": 1}
+_DELTA_TOKEN = re.compile(r"(\d+)\s*([a-zA-Z]+)")
+
+
+def parse_delta(text: str) -> int | None:
+    """Parse a human duration ('3 days', '2w', '1d 4h', '90m') to total minutes.
+    Returns None if nothing parses, so callers can reject bad input."""
+    if not isinstance(text, str):
+        return None
+    total = 0
+    found = False
+    for num, unit in _DELTA_TOKEN.findall(text.strip().casefold()):
+        mins = _DELTA_UNITS.get(unit)
+        if mins is None:
+            return None
+        total += int(num) * mins
+        found = True
+    return total if found and total > 0 else None
+
+
+def format_delta(minutes: int) -> str:
+    """Render total minutes as a compact human duration ('2 weeks', '1d 4h')."""
+    try:
+        minutes = int(minutes)
+    except (TypeError, ValueError):
+        return "?"
+    if minutes <= 0:
+        return "0m"
+    if minutes % 10080 == 0:
+        n = minutes // 10080
+        return f"{n} week{'s' if n != 1 else ''}"
+    if minutes % 1440 == 0:
+        n = minutes // 1440
+        return f"{n} day{'s' if n != 1 else ''}"
+    parts = []
+    for label, size in (("d", 1440), ("h", 60), ("m", 1)):
+        if minutes >= size:
+            parts.append(f"{minutes // size}{label}")
+            minutes %= size
+    return " ".join(parts)
+
+
+def delta_ref(text: str) -> EntityRef | None:
+    """Build a delta node from human text; None if it doesn't parse."""
+    minutes = parse_delta(text)
+    return EntityRef(KIND_DELTA, "", str(minutes)) if minutes is not None else None
 
 
 @dataclass

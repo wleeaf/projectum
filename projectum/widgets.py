@@ -2203,6 +2203,7 @@ class MonthGrid(QWidget):
     """
 
     day_clicked = Signal(object)       # a datetime.date
+    day_range_selected = Signal(object, object)  # (start_date, end_date) drag-select
     item_activated = Signal(object)    # a ScheduledItem
     item_context = Signal(object, QPoint)  # (ScheduledItem, global pos) on right-click
     item_rescheduled = Signal(object, str, str)  # (item, start_iso, end_iso) after drag
@@ -2226,7 +2227,7 @@ class MonthGrid(QWidget):
         self._grid_start = cal.month_grid_start(self._year, self._month)
         self._bars: list = []
         self._drag: dict | None = None   # in-progress move/resize of a bar
-        self._press_day = None           # tentative day click
+        self._day_sel: dict | None = None  # in-progress day / frame selection
         self._drop_day = None            # day highlighted under an external drop
         self._allow_bar_drag = True      # False -> bars click-only (links mode)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -2329,6 +2330,8 @@ class MonthGrid(QWidget):
             self._paint_bars(p, cw, ch)
             if self._drag is not None and self._drag.get("preview") is not None:
                 self._paint_day_span(p, *self._drag["preview"])
+            elif self._day_sel is not None:
+                self._paint_day_span(p, self._day_sel["start"], self._day_sel["cur"])
             elif self._drop_day is not None:
                 self._paint_day_span(p, self._drop_day, self._drop_day)
 
@@ -2521,7 +2524,8 @@ class MonthGrid(QWidget):
                     return
             day = self._day_at(pos)
             if day is not None:
-                self._press_day = day
+                # Start a day/frame selection (drag across days -> a frame).
+                self._day_sel = {"start": day, "cur": day}
                 event.accept()
                 return
         elif event.button() == Qt.MouseButton.RightButton:
@@ -2544,6 +2548,13 @@ class MonthGrid(QWidget):
             day = self._day_at(pos)
             if day is not None:
                 self._drag["preview"] = self._compute_preview(self._drag, day)
+                self.update()
+            event.accept()
+            return
+        if self._day_sel is not None and (event.buttons() & Qt.MouseButton.LeftButton):
+            day = self._day_at(event.position())
+            if day is not None and day != self._day_sel["cur"]:
+                self._day_sel["cur"] = day
                 self.update()
             event.accept()
             return
@@ -2574,9 +2585,15 @@ class MonthGrid(QWidget):
             self.update()
             event.accept()
             return
-        if self._press_day is not None:
-            day, self._press_day = self._press_day, None
-            self.day_clicked.emit(day)
+        if self._day_sel is not None:
+            sel, self._day_sel = self._day_sel, None
+            start, cur = sel["start"], sel["cur"]
+            self.update()
+            if start == cur:
+                self.day_clicked.emit(start)                 # single day -> attribute
+            else:
+                lo, hi = sorted((start, cur))
+                self.day_range_selected.emit(lo, hi)         # frame -> attribute span
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -2697,6 +2714,7 @@ class CalendarView(QWidget):
     with an Unscheduled tray of items that don't yet have a date."""
 
     day_clicked = Signal(object)
+    day_range_selected = Signal(object, object)
     item_activated = Signal(object)
     item_context = Signal(object, QPoint)
     item_rescheduled = Signal(object, str, str)  # (item, start_iso, end_iso)
@@ -2748,6 +2766,7 @@ class CalendarView(QWidget):
 
         self.grid = MonthGrid()
         self.grid.day_clicked.connect(self.day_clicked.emit)
+        self.grid.day_range_selected.connect(self.day_range_selected.emit)
         self.grid.item_activated.connect(self.item_activated.emit)
         self.grid.item_context.connect(self.item_context.emit)
         self.grid.item_rescheduled.connect(self.item_rescheduled.emit)
@@ -2984,6 +3003,28 @@ def _format_date_iso(iso: str) -> str:
     return f"{WEEKDAY_LABELS[d.weekday()]}, {MONTH_NAMES[d.month]} {d.day} {d.year}"
 
 
+def _format_temporal(ref) -> str | None:
+    """Human label for a temporal node (date / daterange / delta), else None."""
+    if ref.kind == links_mod.KIND_DATE:
+        return _format_date_iso(ref.key)
+    if ref.kind == links_mod.KIND_DATERANGE:
+        pr = links_mod.parse_daterange(ref.key)
+        if pr:
+            a, b = pr
+            da, db = cal.parse_date(a), cal.parse_date(b)
+            if da and db:
+                n = (db - da).days + 1
+                return (f"{_format_date_iso(a)} – {_format_date_iso(b)}"
+                        f" · {n} day{'s' if n != 1 else ''}")
+        return ref.key
+    if ref.kind == links_mod.KIND_DELTA:
+        try:
+            return links_mod.format_delta(int(ref.key))
+        except (TypeError, ValueError):
+            return ref.key
+    return None
+
+
 class _LinkRow(QWidget):
     """One existing link: kind dot + label + remove button. Clicking the row
     (anywhere but the ×) opens/navigates to that entity, when resolvable."""
@@ -3124,8 +3165,9 @@ class LinksDialog(QWidget):
 
     # ── current links ──
     def _label(self, ref) -> tuple[str, bool]:
-        if ref.is_date:
-            return _format_date_iso(ref.key), False
+        temporal = _format_temporal(ref)
+        if temporal is not None:
+            return temporal, False
         info = self._index.get(ref)
         if info is not None:
             return info.title, False
@@ -3239,8 +3281,9 @@ class GraphCanvas(QWidget):
     def _title(self, ref) -> str:
         if ref is None:
             return ""
-        if ref.is_date:
-            return _format_date_iso(ref.key)
+        temporal = _format_temporal(ref)
+        if temporal is not None:
+            return temporal
         info = self._index.get(ref)
         return info.title if info is not None else "(unavailable)"
 
@@ -3413,5 +3456,5 @@ class GraphView(QWidget):
 
     def _request_links(self) -> None:
         ref = self.canvas.focus()
-        if ref is not None and not ref.is_date:
+        if ref is not None:
             self.open_links_requested.emit(ref)

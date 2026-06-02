@@ -3,7 +3,8 @@
 import json
 
 from projectum.links import (
-    EntityRef, LinkStore, date_ref, index_entities, make_ref,
+    EntityRef, LinkStore, daterange_ref, date_ref, delta_ref, format_delta,
+    index_entities, make_ref, parse_daterange, parse_delta,
 )
 from projectum.store import ProjectStore
 
@@ -16,6 +17,26 @@ def test_entityref_roundtrip_and_identity():
     assert EntityRef.from_list(["bad"]) is None
     d = date_ref("2026-06-03")
     assert d.is_date and d.home == "" and d.key == "2026-06-03"
+
+
+def test_daterange_ref_and_parse():
+    dr = daterange_ref("2026-06-10", "2026-06-03")     # reversed -> ordered key
+    assert dr.key == "2026-06-03..2026-06-10"
+    assert dr.is_calendar and not dr.is_date and dr.is_temporal
+    assert parse_daterange(dr.key) == ("2026-06-03", "2026-06-10")
+    assert parse_daterange("not-a-range") is None
+
+
+def test_delta_parse_format_and_dedup():
+    assert parse_delta("3 days") == 4320 and parse_delta("3d") == 4320
+    assert parse_delta("2w") == 20160 and parse_delta("1d 4h") == 1680
+    assert parse_delta("90m") == 90 and parse_delta("garbage") is None
+    assert delta_ref("1 week").key == delta_ref("7 days").key   # same duration -> one node
+    assert delta_ref("nonsense") is None
+    d = delta_ref("2 weeks")
+    assert d.kind == "delta" and d.is_temporal and not d.is_calendar
+    assert format_delta(4320) == "3 days" and format_delta(20160) == "2 weeks"
+    assert format_delta(90) == "1h 30m"
 
 
 def test_linkstore_add_dedup_undirected(tmp_path):

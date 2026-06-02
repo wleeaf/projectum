@@ -42,6 +42,7 @@ from .widgets import (
     GraphView, IconButton, LinksDialog, MarkdownHighlighter, PlaylistRow,
     ProjectRow, SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar,
     TodoRow, UpdateBanner, VideoRow, WindowControlButton, _format_date_iso,
+    _format_temporal,
 )
 from .youtube import PlaylistFetchRunnable
 from .update import UpdateCheckRunnable
@@ -420,6 +421,7 @@ class MainWindow(QMainWindow):
         view = CalendarView()
         view.set_bars_draggable(False)   # link model: bars are click-only this pass
         view.day_clicked.connect(self._on_calendar_day_attribute)   # attribute a day
+        view.day_range_selected.connect(self._on_calendar_frame_attribute)  # a frame
         view.item_activated.connect(self._on_calendar_item_open)     # open the entity
         view.item_context.connect(self._on_calendar_item_context)
         view.item_rescheduled.connect(self._on_calendar_link_drop)   # tray drop -> link
@@ -3242,16 +3244,23 @@ class MainWindow(QMainWindow):
         entries: list = []
         linked: set = set()
         for a, b in self._link_store.all_edges():
-            if a.is_date and not b.is_date:
-                day, ent = a, b
-            elif b.is_date and not a.is_date:
-                day, ent = b, a
+            if a.is_calendar and not b.is_calendar:
+                temporal, ent = a, b
+            elif b.is_calendar and not a.is_calendar:
+                temporal, ent = b, a
             else:
-                continue  # entity↔entity (or date↔date) — not a calendar entry
+                continue  # entity↔entity, or two temporal nodes — not an entry
+            if temporal.kind == links_mod.KIND_DATE:
+                start = end = temporal.key
+            else:  # daterange (a frame) -> a span
+                pr = links_mod.parse_daterange(temporal.key)
+                if pr is None:
+                    continue
+                start, end = pr
             info = self._entity_index.get(ent)
             title = info.title if info is not None else ent.key
             entries.append(cal.ScheduledItem(ent.home, ent.kind, ent.key, title,
-                                             day.key, day.key))
+                                             start, end))
             linked.add(ent)
         home = cal.resolved_path(str(self.store.root)) if self.store else None
         if home is not None:
@@ -3265,6 +3274,11 @@ class MainWindow(QMainWindow):
         """Select a day and attribute it — manage what's linked to that date."""
         self._open_links_dialog(links_mod.date_ref(day.isoformat()),
                                 _format_date_iso(day.isoformat()))
+
+    def _on_calendar_frame_attribute(self, start, end) -> None:
+        """Drag-select a frame (range) and attribute it."""
+        ref = links_mod.daterange_ref(start.isoformat(), end.isoformat())
+        self._open_links_dialog(ref, _format_temporal(ref) or ref.key)
 
     def _on_calendar_item_open(self, item) -> None:
         self._navigate_to(make_ref(item.kind, item.home, item.key))
@@ -3327,14 +3341,17 @@ class MainWindow(QMainWindow):
             self._refresh_graph()
 
     def _open_links_for_ref(self, ref) -> None:
-        info = self._entity_index.get(ref)
-        self._open_links_dialog(ref, info.title if info is not None else ref.key)
+        label = _format_temporal(ref)
+        if label is None:
+            info = self._entity_index.get(ref)
+            label = info.title if info is not None else ref.key
+        self._open_links_dialog(ref, label)
 
     def _refresh_graph(self) -> None:
         self.graph_view.set_data(self._link_store, self._entity_index)
         cur = self.graph_view.canvas.focus()
         refs = self._link_store.all_refs()
-        if cur is not None and (cur.is_date or cur in self._entity_index):
+        if cur is not None and (cur.is_temporal or cur in self._entity_index):
             self.graph_view.set_focus(cur)              # keep a valid focus
         elif refs:
             self.graph_view.set_focus(                  # default: most-connected
@@ -3344,11 +3361,17 @@ class MainWindow(QMainWindow):
 
     def _navigate_to(self, ref) -> None:
         """Open/reveal a linked entity — switching folders and tabs as needed."""
-        if ref.is_date:
+        if ref.is_calendar:                       # a day or a frame -> the calendar
             self._goto_tab("calendar")
-            d = cal.parse_date(ref.key)
+            iso = ref.key
+            if ref.kind == links_mod.KIND_DATERANGE:
+                pr = links_mod.parse_daterange(ref.key)
+                iso = pr[0] if pr else ref.key
+            d = cal.parse_date(iso)
             if d is not None:
                 self.calendar_view.set_month(d.year, d.month)
+            return
+        if ref.kind == links_mod.KIND_DELTA:      # a bare duration -> nowhere to go
             return
         # Cross-folder: open the entity's folder first (lists rebuild synchronously).
         same = (self.store is not None

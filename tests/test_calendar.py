@@ -340,6 +340,28 @@ def test_calendar_day_attribute_opens_links_for_date(window, qapp, tmp_path):
     window._links_dialog.close()
 
 
+def test_calendar_renders_frame_as_span(window, qapp, tmp_path):
+    from projectum.links import daterange_ref
+    fa = _folder(tmp_path, "work", ["alpha"])
+    s = ProjectStore(fa); todo = s.add_todo("Sprint"); s.save()
+    window.load_folder(fa); window._build_entity_index()
+    window._link_store.add(make_ref("todo", str(fa), todo.id),
+                           daterange_ref("2026-06-09", "2026-06-13"))
+    window._refresh_calendar()
+    e = next(i for i in window.calendar_view.grid._items if i.key == todo.id)
+    assert e.start == "2026-06-09" and e.end == "2026-06-13"   # rendered as a span
+
+
+def test_calendar_frame_attribute_opens_daterange_dialog(window, qapp, tmp_path):
+    fa = _folder(tmp_path, "work", ["alpha"]); ProjectStore(fa).save()
+    window.load_folder(fa)
+    window._on_calendar_frame_attribute(date(2026, 6, 9), date(2026, 6, 13))
+    qapp.processEvents()
+    assert window._links_dialog._ref.kind == "daterange"
+    assert window._links_dialog._ref.key == "2026-06-09..2026-06-13"
+    window._links_dialog.close()
+
+
 def test_calendar_link_drop_and_unlink(window, qapp, tmp_path):
     fa = _folder(tmp_path, "work", ["alpha"])
     s = ProjectStore(fa); todo = s.add_todo("Task A"); s.save()
