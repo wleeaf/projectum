@@ -4,6 +4,7 @@ import json
 from datetime import date
 
 from projectum import calendar as cal
+from projectum.links import date_ref, make_ref
 from projectum.store import ProjectStore
 
 
@@ -225,26 +226,17 @@ def test_schedule_dialog_emits_iso(qapp):
 
 # ── integration ──
 
-def test_schedule_flow_persists_and_moves(window, qapp, tmp_path):
+def test_calendar_renders_date_links(window, qapp, tmp_path):
     fa = _folder(tmp_path, "work", ["alpha"])
-    s = ProjectStore(fa)
-    s.add_todo("Task A")
-    s.save()
+    s = ProjectStore(fa); todo = s.add_todo("Task A"); s.save()
     window.load_folder(fa)
-    # populate the calendar synchronously (bypass the async scan)
-    window._calendar_items = cal.items_from_store(window.store)
-    window.calendar_view.set_items(window._calendar_items)
-    task = next(i for i in window._calendar_items if i.title == "Task A")
-    assert not task.scheduled
-
-    window._apply_schedule(task, "2026-06-11", "2026-06-13")
-    qapp.processEvents()
-    reloaded = next(t for t in ProjectStore(fa).todos if t.text == "Task A")
-    assert reloaded.start == "2026-06-11" and reloaded.end == "2026-06-13"
-
-    window._apply_schedule(task, "", "")
-    qapp.processEvents()
-    assert next(t for t in ProjectStore(fa).todos if t.text == "Task A").start == ""
+    window._build_entity_index()                     # resolve titles synchronously
+    ref = make_ref("todo", str(fa), todo.id)
+    window._link_store.add(ref, date_ref("2026-06-11"))
+    window._refresh_calendar()
+    grid_items = window.calendar_view.grid._items
+    assert any(i.kind == "todo" and i.key == todo.id and i.start == "2026-06-11"
+               for i in grid_items)                  # the linked todo shows on that day
 
 
 # ── drag & drop ──
@@ -338,24 +330,27 @@ def test_tray_scoped_to_open_folder(qapp):
     v.deleteLater()
 
 
-def test_live_write_survives_store_reload(window, qapp, tmp_path):
-    # apply_dates -> save() triggers the dir watcher -> store.load(); that reload
-    # must not blow away the calendar, and the date must persist.
-    fa = _folder(tmp_path, "work", ["alpha"])
-    s = ProjectStore(fa)
-    s.add_todo("T")
-    s.save()
+def test_calendar_day_attribute_opens_links_for_date(window, qapp, tmp_path):
+    fa = _folder(tmp_path, "work", ["alpha"]); ProjectStore(fa).save()
     window.load_folder(fa)
-    window._calendar_items = cal.items_from_store(window.store)
-    window.calendar_view.set_items(window._calendar_items)
-    item = next(i for i in window._calendar_items if i.title == "T")
+    window._on_calendar_day_attribute(date(2026, 6, 15))   # "select a day and attribute it"
+    qapp.processEvents()
+    assert window._links_dialog is not None
+    assert window._links_dialog._ref == date_ref("2026-06-15")   # links dialog for that date
+    window._links_dialog.close()
 
-    window._apply_schedule(item, "2026-06-05", "2026-06-07")
-    qapp.processEvents()
-    window.store.load()                          # simulate the watcher's reload
-    qapp.processEvents()
-    assert next(t for t in ProjectStore(fa).todos if t.text == "T").start == "2026-06-05"
-    assert window._calendar_items                # reload didn't clear the calendar
+
+def test_calendar_link_drop_and_unlink(window, qapp, tmp_path):
+    fa = _folder(tmp_path, "work", ["alpha"])
+    s = ProjectStore(fa); todo = s.add_todo("Task A"); s.save()
+    window.load_folder(fa)
+    window._build_entity_index()
+    chip = cal.ScheduledItem(str(fa), "todo", todo.id, "Task A", "", "")
+    window._on_calendar_link_drop(chip, "2026-06-20", "2026-06-20")   # tray drop -> link
+    ref = make_ref("todo", str(fa), todo.id)
+    assert window._link_store.has(ref, date_ref("2026-06-20"))
+    window._unlink_date(ref, "2026-06-20")                            # remove from the day
+    assert not window._link_store.has(ref, date_ref("2026-06-20"))
 
 
 def test_bar_click_without_drag_activates(qapp):

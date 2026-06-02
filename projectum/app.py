@@ -40,8 +40,8 @@ from .widgets import (
     BrandMark, CalendarScanRunnable, CalendarView, ColorPickerPopup,
     CommandPalette, CompletionToggle, FlowLayout, FrameWrapper, GitRunnable,
     GraphView, IconButton, LinksDialog, MarkdownHighlighter, PlaylistRow,
-    ProjectRow, ScheduleDialog, SettingsDialog, SizeRunnable, TagChip,
-    TagEditor, TitleBar, TodoRow, UpdateBanner, VideoRow, WindowControlButton,
+    ProjectRow, SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar,
+    TodoRow, UpdateBanner, VideoRow, WindowControlButton, _format_date_iso,
 )
 from .youtube import PlaylistFetchRunnable
 from .update import UpdateCheckRunnable
@@ -140,13 +140,11 @@ class MainWindow(QMainWindow):
         self._size_pending_for: str | None = None
         self._row_items: dict[str, QListWidgetItem] = {}
         self._tag_editor: TagEditor | None = None
-        self._calendar_items: list = []
+        # Generation guard so out-of-order async index scans can't clobber a
+        # newer one; strong refs keep each runnable (and its signals QObject)
+        # alive until its queued cross-thread `done` is delivered.
         self._calendar_scan_gen = 0
-        # Strong refs to in-flight scan runnables. Without this the local
-        # runnable (and its signals QObject) can be GC'd before the queued
-        # cross-thread `done` is delivered, dropping the result.
         self._calendar_runnables: set = set()
-        self._schedule_dialog: ScheduleDialog | None = None
         # Global relation graph (cross-folder) + a cached entity index used to
         # resolve/search links. The store is one file we own, written on the UI
         # thread; the index is rebuilt from a read-only cross-folder scan.
@@ -420,9 +418,11 @@ class MainWindow(QMainWindow):
 
     def _build_calendar_view(self) -> QWidget:
         view = CalendarView()
-        view.item_activated.connect(self._open_schedule_dialog)
+        view.set_bars_draggable(False)   # link model: bars are click-only this pass
+        view.day_clicked.connect(self._on_calendar_day_attribute)   # attribute a day
+        view.item_activated.connect(self._on_calendar_item_open)     # open the entity
         view.item_context.connect(self._on_calendar_item_context)
-        view.item_rescheduled.connect(self._apply_schedule)  # drag move/resize/drop
+        view.item_rescheduled.connect(self._on_calendar_link_drop)   # tray drop -> link
         return view
 
     def _build_graph_view(self) -> QWidget:
@@ -480,9 +480,11 @@ class MainWindow(QMainWindow):
             self.content_stack, self.content_stack.indexOf(target), duration=160,
         )
         if key == "calendar":
-            self._rescan_calendar()
+            self._refresh_calendar()      # immediate, from the in-memory graph
+            self._rebuild_index_async()   # then fill in titles / search universe
         elif key == "graph":
             self._refresh_graph()
+            self._rebuild_index_async()
 
     def _build_projects_view(self) -> QWidget:
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -1432,6 +1434,7 @@ class MainWindow(QMainWindow):
             self._loading_global_notes = False
         self.detail_stack.setCurrentIndex(0)
         self.playlist_detail_stack.setCurrentIndex(0)
+        self._rebuild_index_async()   # warm the link/entity index for the new folder
 
     def _flush_pending_writes(self) -> None:
         """Force any debounced save timers to fire synchronously."""
@@ -3185,90 +3188,42 @@ class MainWindow(QMainWindow):
 
     # ─── Calendar ────────────────────────────────────────────────
 
-    def _rescan_calendar(self) -> None:
-        """Refresh the global calendar. The open folder is read on the UI
-        thread (in :meth:`_on_calendar_scanned`); every other tracked folder is
-        scanned off-thread so a large history never stalls the UI."""
-        self.calendar_view.set_today(date.today())
+    # ─── Entity index (cached, refreshed off-thread) ─────────────
+
+    def _rebuild_index_async(self) -> None:
+        """Refresh the cached entity index off-thread — resolve every linkable
+        entity across tracked folders to its title (and the 'add link' search
+        universe). The link graph is already in memory so the calendar/graph
+        render immediately; this fills in titles, then refreshes the open tab."""
         folders = load_state().get("recent_folders")
         if not isinstance(folders, list):
             folders = []
         exclude = cal.resolved_path(str(self.store.root)) if self.store else None
-        # Generation guard: rapid rescans (drop, then tab re-enter) can finish
-        # out of order; only the latest result is allowed to update the view.
         self._calendar_scan_gen += 1
         gen = self._calendar_scan_gen
         runnable = CalendarScanRunnable(folders, exclude)
         self._calendar_runnables.add(runnable)
         runnable.signals.done.connect(
-            lambda items, skipped, g=gen, r=runnable:
-            self._on_calendar_scanned(items, skipped, g, r)
+            lambda items, skipped, g=gen, r=runnable: self._on_index_scanned(items, g, r)
         )
         self._size_pool.start(runnable)
 
-    def _on_calendar_scanned(self, disk_items: list, skipped: list, gen: int,
-                             runnable=None) -> None:
+    def _on_index_scanned(self, disk_items: list, gen: int, runnable=None) -> None:
         self._calendar_runnables.discard(runnable)
         if gen != self._calendar_scan_gen:
-            return  # a newer scan superseded this one
-        # Prepend the open folder's items, read fresh on the UI thread (its
-        # in-memory objects are never touched off-thread). scan_disk excluded
-        # the open folder, so there's no double-count.
-        live_items = cal.items_from_store(self.store) if self.store else []
-        self._calendar_items = live_items + list(disk_items)
-        self._refresh_calendar_view()
-
-    def _refresh_calendar_view(self) -> None:
-        # Grid is global; the tray is scoped to the open folder's undated items.
-        tray_home = cal.resolved_path(str(self.store.root)) if self.store else None
-        self.calendar_view.set_items(self._calendar_items, tray_home)
-
-    def _open_schedule_dialog(self, item) -> None:
-        """Open the date-range picker for a scheduled bar or unscheduled chip."""
-        if self._schedule_dialog is not None and self._schedule_dialog.isVisible():
-            self._schedule_dialog.raise_()
-            return
-        dlg = ScheduleDialog(item.title or "(untitled)", item.start, item.end, parent=self)
-        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        dlg.scheduled.connect(lambda s, e, it=item: self._apply_schedule(it, s, e))
-        dlg.destroyed.connect(
-            lambda *_a, d=dlg: self._forget_if_current("_schedule_dialog", d)
-        )
-        self._schedule_dialog = dlg
-        dlg.adjustSize()
-        center = self.frameGeometry().center()
-        dlg.move(center.x() - dlg.width() // 2, center.y() - dlg.height() // 2)
-        dlg.setWindowOpacity(0.0)
-        dlg.show()
-        fade_window(dlg, 1.0, duration=140)
-
-    def _on_calendar_item_context(self, item, global_pos) -> None:
-        menu = QMenu(self)
-        edit = QAction("Edit dates…", menu)
-        edit.triggered.connect(lambda: self._open_schedule_dialog(item))
-        menu.addAction(edit)
-        unschedule = QAction("Unschedule", menu)
-        unschedule.triggered.connect(lambda: self._apply_schedule(item, "", ""))
-        menu.addAction(unschedule)
-        menu.exec(global_pos)
-
-    def _apply_schedule(self, item, start: str, end: str) -> None:
-        """Persist a date change for ``item`` and refresh the calendar.
-
-        ``apply_dates`` mutates the passed ScheduledItem in place and routes the
-        write to the right store, so re-feeding the current list gives instant
-        feedback (the item hops between grid and tray immediately); the async
-        rescan then reconciles persisted truth across all folders."""
-        if cal.apply_dates(self.store, item, start, end):
-            self._refresh_calendar_view()
-            self._rescan_calendar()
-
-    # ─── Relations (links) ───────────────────────────────────────
+            return  # superseded
+        live = cal.items_from_store(self.store) if self.store else []
+        triples = [(it.home, it.kind, it.key, it.title) for it in (live + list(disk_items))]
+        self._entity_index = links_mod.index_entities(triples)
+        if self.current_tab == "calendar":
+            self._refresh_calendar()
+        elif self.current_tab == "graph":
+            self._refresh_graph()
 
     def _build_entity_index(self) -> dict:
-        """Resolve every linkable entity across tracked folders to {ref: info}.
-        Read-only cross-folder scan; rebuilt when a Links dialog opens (a
-        discrete action) — not per keystroke (the dialog filters in memory)."""
+        """Synchronous index build — for discrete actions (opening the Links
+        dialog) where a fresh, complete search universe matters more than the
+        few-ms scan. The calendar/graph use the async cache instead."""
         folders = load_state().get("recent_folders")
         if not isinstance(folders, list):
             folders = []
@@ -3276,6 +3231,72 @@ class MainWindow(QMainWindow):
         triples = [(it.home, it.kind, it.key, it.title) for it in items]
         self._entity_index = links_mod.index_entities(triples)
         return self._entity_index
+
+    # ─── Calendar: a date browser over the link graph ────────────
+
+    def _refresh_calendar(self) -> None:
+        """Render the calendar from the link graph: every entity linked to a
+        date shows on that day. The open folder's date-less entities fill the
+        Unscheduled tray (drag one onto a day to link it there)."""
+        self.calendar_view.set_today(date.today())
+        entries: list = []
+        linked: set = set()
+        for a, b in self._link_store.all_edges():
+            if a.is_date and not b.is_date:
+                day, ent = a, b
+            elif b.is_date and not a.is_date:
+                day, ent = b, a
+            else:
+                continue  # entity↔entity (or date↔date) — not a calendar entry
+            info = self._entity_index.get(ent)
+            title = info.title if info is not None else ent.key
+            entries.append(cal.ScheduledItem(ent.home, ent.kind, ent.key, title,
+                                             day.key, day.key))
+            linked.add(ent)
+        home = cal.resolved_path(str(self.store.root)) if self.store else None
+        if home is not None:
+            for ref, info in self._entity_index.items():
+                if cal.resolved_path(ref.home) == home and ref not in linked:
+                    entries.append(cal.ScheduledItem(ref.home, ref.kind, ref.key,
+                                                     info.title, "", ""))
+        self.calendar_view.set_items(entries, tray_home=home)
+
+    def _on_calendar_day_attribute(self, day) -> None:
+        """Select a day and attribute it — manage what's linked to that date."""
+        self._open_links_dialog(links_mod.date_ref(day.isoformat()),
+                                _format_date_iso(day.isoformat()))
+
+    def _on_calendar_item_open(self, item) -> None:
+        self._navigate_to(make_ref(item.kind, item.home, item.key))
+
+    def _on_calendar_item_context(self, item, global_pos) -> None:
+        ref = make_ref(item.kind, item.home, item.key)
+        menu = QMenu(self)
+        op = QAction("Open", menu)
+        op.triggered.connect(lambda: self._navigate_to(ref))
+        menu.addAction(op)
+        lk = QAction("Links…", menu)
+        lk.triggered.connect(lambda: self._open_links_dialog(ref, item.title or ref.key))
+        menu.addAction(lk)
+        if item.start:
+            rm = QAction("Remove from this day", menu)
+            rm.triggered.connect(lambda: self._unlink_date(ref, item.start))
+            menu.addAction(rm)
+        menu.exec(global_pos)
+
+    def _on_calendar_link_drop(self, item, start: str, end: str) -> None:
+        """A tray chip dropped on a day -> link that entity to the date."""
+        if not start:
+            return
+        ref = make_ref(item.kind, item.home, item.key)
+        if self._link_store.add(ref, links_mod.date_ref(start)):
+            self._refresh_calendar()
+
+    def _unlink_date(self, ref, iso: str) -> None:
+        if self._link_store.remove(ref, links_mod.date_ref(iso)):
+            self._refresh_calendar()
+
+    # ─── Relations (links) ───────────────────────────────────────
 
     def _open_links_dialog(self, ref, title: str) -> None:
         if self._links_dialog is not None and self._links_dialog.isVisible():
@@ -3299,8 +3320,10 @@ class MainWindow(QMainWindow):
         fade_window(dlg, 1.0, duration=140)
 
     def _on_links_changed(self) -> None:
-        # Reflect new/removed links in the graph if it's the visible tab.
-        if self.current_tab == "graph":
+        # Reflect new/removed links in whichever date/graph view is showing.
+        if self.current_tab == "calendar":
+            self._refresh_calendar()
+        elif self.current_tab == "graph":
             self._refresh_graph()
 
     def _open_links_for_ref(self, ref) -> None:
@@ -3308,11 +3331,10 @@ class MainWindow(QMainWindow):
         self._open_links_dialog(ref, info.title if info is not None else ref.key)
 
     def _refresh_graph(self) -> None:
-        index = self._build_entity_index()
-        self.graph_view.set_data(self._link_store, index)
+        self.graph_view.set_data(self._link_store, self._entity_index)
         cur = self.graph_view.canvas.focus()
         refs = self._link_store.all_refs()
-        if cur is not None and (cur.is_date or cur in index):
+        if cur is not None and (cur.is_date or cur in self._entity_index):
             self.graph_view.set_focus(cur)              # keep a valid focus
         elif refs:
             self.graph_view.set_focus(                  # default: most-connected

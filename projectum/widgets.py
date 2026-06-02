@@ -2228,12 +2228,16 @@ class MonthGrid(QWidget):
         self._drag: dict | None = None   # in-progress move/resize of a bar
         self._press_day = None           # tentative day click
         self._drop_day = None            # day highlighted under an external drop
+        self._allow_bar_drag = True      # False -> bars click-only (links mode)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(380)
         self.setMouseTracking(True)
         self.setAcceptDrops(True)
 
     # ── public API ──
+    def set_bars_draggable(self, value: bool) -> None:
+        self._allow_bar_drag = bool(value)
+
     def set_month(self, year: int, month: int) -> None:
         self._year, self._month = year, month
         self._recompute()
@@ -2490,6 +2494,11 @@ class MonthGrid(QWidget):
         pos = event.position()
         if event.button() == Qt.MouseButton.LeftButton:
             bar = self._bar_at(pos)
+            if bar is not None and not self._allow_bar_drag:
+                # Links mode: a bar is click-only (opens the entity).
+                self.item_activated.emit(self._items[bar.item_index])
+                event.accept()
+                return
             if bar is not None:
                 item = self._items[bar.item_index]
                 rect = self._bar_rect(bar)
@@ -2835,6 +2844,9 @@ class CalendarView(QWidget):
 
     def set_today(self, day: date) -> None:
         self.grid.set_today(day)
+
+    def set_bars_draggable(self, value: bool) -> None:
+        self.grid.set_bars_draggable(value)
 
     def _refresh_title(self) -> None:
         y, m = self.grid.year_month()
