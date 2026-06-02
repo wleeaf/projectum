@@ -2771,9 +2771,15 @@ class CalendarView(QWidget):
         root.addWidget(self._tray)
         self._tray.setVisible(False)
 
-    def set_items(self, items: list) -> None:
+    def set_items(self, items: list, tray_home: str | None = None) -> None:
+        """Grid shows all scheduled items (global); the Unscheduled tray shows
+        only undated items from ``tray_home`` (the open folder) — or all of them
+        if ``tray_home`` is None."""
         scheduled = [it for it in items if it.scheduled]
         unscheduled = [it for it in items if not it.scheduled]
+        if tray_home is not None:
+            unscheduled = [it for it in unscheduled
+                           if cal.resolved_path(it.home) == tray_home]
         self.grid.set_items(scheduled)
         self._populate_tray(unscheduled)
 

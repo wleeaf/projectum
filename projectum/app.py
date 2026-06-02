@@ -3175,7 +3175,12 @@ class MainWindow(QMainWindow):
         # the open folder, so there's no double-count.
         live_items = cal.items_from_store(self.store) if self.store else []
         self._calendar_items = live_items + list(disk_items)
-        self.calendar_view.set_items(self._calendar_items)
+        self._refresh_calendar_view()
+
+    def _refresh_calendar_view(self) -> None:
+        # Grid is global; the tray is scoped to the open folder's undated items.
+        tray_home = cal.resolved_path(str(self.store.root)) if self.store else None
+        self.calendar_view.set_items(self._calendar_items, tray_home)
 
     def _open_schedule_dialog(self, item) -> None:
         """Open the date-range picker for a scheduled bar or unscheduled chip."""
@@ -3214,7 +3219,7 @@ class MainWindow(QMainWindow):
         feedback (the item hops between grid and tray immediately); the async
         rescan then reconciles persisted truth across all folders."""
         if cal.apply_dates(self.store, item, start, end):
-            self.calendar_view.set_items(self._calendar_items)
+            self._refresh_calendar_view()
             self._rescan_calendar()
 
     def _apply_settings(self, settings: dict) -> None:

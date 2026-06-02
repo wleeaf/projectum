@@ -321,6 +321,23 @@ def test_tray_caps_render_with_overflow_label(qapp):
     v.deleteLater()
 
 
+def test_tray_scoped_to_open_folder(qapp):
+    from projectum.widgets import CalendarView, _TrayChip
+    v = CalendarView()
+    a, b = "/repo/A", "/repo/B"
+    items = [
+        cal.ScheduledItem(a, "todo", "a1", "A-unsched"),                  # open, undated
+        cal.ScheduledItem(b, "todo", "b1", "B-unsched"),                  # other, undated
+        cal.ScheduledItem(b, "project", "b2", "B-sched", "2026-06-03"),   # other, dated
+    ]
+    v.set_items(items, tray_home=cal.resolved_path(a))
+    chips = [v._tray_row.itemAt(i).widget() for i in range(v._tray_row.count())]
+    titles = [c.item.title for c in chips if isinstance(c, _TrayChip)]
+    assert titles == ["A-unsched"]      # tray = only the open folder's undated items
+    assert len(v.grid._items) == 1      # grid stays global (shows B's scheduled item)
+    v.deleteLater()
+
+
 def test_live_write_survives_store_reload(window, qapp, tmp_path):
     # apply_dates -> save() triggers the dir watcher -> store.load(); that reload
     # must not blow away the calendar, and the date must persist.
