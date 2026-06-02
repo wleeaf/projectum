@@ -38,6 +38,8 @@ KIND_COLOR_KEY = {
     cal.KIND_PLAYLIST: "ACCENT_2",
     cal.KIND_TODO: "INFO",
     "date": "SUCCESS",
+    "daterange": "SUCCESS",
+    "delta": "WARNING",
     "video": "ACCENT_2",
     "note": "WARNING",
     "tag": "TEXT_DIM",
@@ -46,7 +48,8 @@ KIND_COLOR_KEY = {
 # Human label for each kind, shown in the Links dialog / graph.
 KIND_LABEL = {
     "project": "Project", "playlist": "Playlist", "todo": "Todo",
-    "date": "Date", "video": "Video", "note": "Note", "tag": "Tag",
+    "date": "Date", "daterange": "Date range", "delta": "Duration",
+    "video": "Video", "note": "Note", "tag": "Tag",
 }
 
 
@@ -3154,6 +3157,21 @@ class LinksDialog(QWidget):
         date_row.addWidget(add_date)
         v.addLayout(date_row)
 
+        # Add a duration ("delta time") — an unanchored length you attach.
+        dur_row = QHBoxLayout()
+        dur_row.setSpacing(8)
+        self._delta_input = QLineEdit()
+        self._delta_input.setObjectName("linksSearch")
+        self._delta_input.setPlaceholderText("Duration — e.g. 3 days, 2w, 4h 30m")
+        self._delta_input.returnPressed.connect(self._add_delta)
+        dur_row.addWidget(self._delta_input, 1)
+        add_dur = QPushButton("Link duration")
+        add_dur.setObjectName("linksAddDate")
+        add_dur.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_dur.clicked.connect(self._add_delta)
+        dur_row.addWidget(add_dur)
+        v.addLayout(dur_row)
+
         close = QPushButton("Close")
         close.setObjectName("scheduleCancel")
         close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3232,6 +3250,16 @@ class LinksDialog(QWidget):
         if self._store.add(self._ref, links_mod.date_ref(iso)):
             self.changed.emit()
             self._refresh_links()
+
+    def _add_delta(self) -> None:
+        ref = links_mod.delta_ref(self._delta_input.text())
+        if ref is None:
+            self._delta_input.setPlaceholderText("Couldn't read that — try '3 days', '2w', '4h'")
+            return
+        if self._store.add(self._ref, ref):
+            self.changed.emit()
+            self._refresh_links()
+            self._delta_input.clear()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:

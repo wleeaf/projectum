@@ -124,6 +124,21 @@ def test_links_dialog_add_search_date_and_remove(qapp, tmp_path):
     dlg.deleteLater()
 
 
+def test_links_dialog_add_delta_duration(qapp, tmp_path):
+    from projectum.widgets import LinksDialog
+    store = LinkStore(tmp_path / "l.json")
+    subj = make_ref("project", "/r/A", "alpha")
+    dlg = LinksDialog(subj, "Alpha", store, {})
+    dlg._delta_input.setText("3 days")
+    dlg._add_delta()
+    neigh = store.neighbors(subj)
+    assert len(neigh) == 1 and neigh[0].kind == "delta"
+    assert format_delta(int(neigh[0].key)) == "3 days"
+    dlg._delta_input.setText("nonsense"); dlg._add_delta()   # unparseable -> ignored
+    assert len(store.neighbors(subj)) == 1
+    dlg.deleteLater()
+
+
 def test_open_links_dialog_indexes_cross_folder(window, qapp, tmp_path):
     fa = tmp_path / "work"; fa.mkdir(); (fa / "alpha").mkdir()
     fb = tmp_path / "media"; fb.mkdir(); (fb / "beta").mkdir()
