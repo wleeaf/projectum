@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -33,9 +35,9 @@ from .anims import (
 )
 from .widgets import (
     BrandMark, ColorPickerPopup, CommandPalette, CompletionToggle, FlowLayout,
-    FrameWrapper, IconButton, MarkdownHighlighter, PlaylistRow, ProjectRow,
-    SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar, TodoRow,
-    VideoRow, WindowControlButton,
+    FrameWrapper, GitRunnable, IconButton, MarkdownHighlighter, PlaylistRow,
+    ProjectRow, SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar,
+    TodoRow, VideoRow, WindowControlButton,
 )
 from .youtube import PlaylistFetchRunnable
 
@@ -274,6 +276,11 @@ class MainWindow(QMainWindow):
         self.open_btn = QPushButton("Open folder")
         self.open_btn.clicked.connect(self.choose_folder)
         h.addWidget(self.open_btn)
+
+        self.recent_btn = QPushButton("Recent ▾")
+        self.recent_btn.setToolTip("Recently opened folders")
+        self.recent_btn.clicked.connect(self._show_recent_menu)
+        h.addWidget(self.recent_btn)
 
         self._settings_btn = IconButton("gear", size=30)
         self._settings_btn.setToolTip("Settings")
@@ -544,6 +551,7 @@ class MainWindow(QMainWindow):
         meta_row.setSpacing(36)
         self.modified_box = self._make_meta("Last modified")
         self.size_box = self._make_meta("Size")
+        self.git_box = self._make_meta("Git")
         self.status_box = self._make_meta("Status")
         self.tested_box = self._make_toggle_meta("Tested", color_key="INFO")
         # The inner toggle is the actionable bit; wire its signal here so
@@ -551,7 +559,8 @@ class MainWindow(QMainWindow):
         self.tested_toggle = self.tested_box._toggle  # type: ignore[attr-defined]
         self.tested_toggle.setToolTip("Mark this project as tested")
         self.tested_toggle.toggled.connect(self._on_tested_toggle)
-        for w in (self.modified_box, self.size_box, self.status_box, self.tested_box):
+        for w in (self.modified_box, self.size_box, self.git_box,
+                  self.status_box, self.tested_box):
             meta_row.addWidget(w)
         meta_row.addStretch()
         dv.addLayout(meta_row)
@@ -1208,6 +1217,25 @@ class MainWindow(QMainWindow):
                   activated=lambda: self.notes_edit.setFocus()
                   if self.current_project else None)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_command_palette)
+        # Tab switching: Ctrl+1..4.
+        for i, key in enumerate(
+            ("projects", "playlists", "todos", "notes"), start=1
+        ):
+            QShortcut(QKeySequence(f"Ctrl+{i}"), self,
+                      activated=partial(self._goto_tab, key))
+        # Toggle "done" on the selected project.
+        QShortcut(QKeySequence("Ctrl+D"), self, activated=self._toggle_current_done)
+        # Jump to the Todo tab and start a new task.
+        QShortcut(QKeySequence("Ctrl+T"), self, activated=self._focus_new_todo)
+
+    def _toggle_current_done(self) -> None:
+        if self.current_tab != "projects" or not self.current_project:
+            return
+        self.detail_toggle.setChecked(not self.detail_toggle.isChecked())
+
+    def _focus_new_todo(self) -> None:
+        self._goto_tab("todos")
+        self.todo_input.setFocus()
 
     # ─── Folder lifecycle ────────────────────────────────────────
 
@@ -1220,6 +1248,40 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Choose project folder", start)
         if path:
             self.load_folder(Path(path))
+
+    def _show_recent_menu(self) -> None:
+        recents = load_state().get("recent_folders")
+        if not isinstance(recents, list):
+            recents = []
+        current = str(self.store.root) if self.store else None
+        home = str(Path.home())
+        menu = QMenu(self)
+        shown = 0
+        seen: set[str] = set()
+        for r in recents:
+            if not isinstance(r, str) or r in seen:
+                continue
+            seen.add(r)
+            # Filter dead paths at display time (folders get moved/deleted).
+            if r == current or not Path(r).is_dir():
+                continue
+            label = ("~" + r[len(home):]) if r.startswith(home) else r
+            act = QAction(label, menu)
+            act.setToolTip(r)
+            act.triggered.connect(partial(self.load_folder, Path(r)))
+            menu.addAction(act)
+            shown += 1
+            if shown >= 12:
+                break
+        if shown == 0:
+            empty = QAction("No recent folders", menu)
+            empty.setEnabled(False)
+            menu.addAction(empty)
+        menu.addSeparator()
+        choose = QAction("Choose folder…", menu)
+        choose.triggered.connect(self.choose_folder)
+        menu.addAction(choose)
+        menu.exec(self.recent_btn.mapToGlobal(self.recent_btn.rect().bottomLeft()))
 
     def load_folder(self, path: Path) -> None:
         if not path.is_dir():
@@ -1253,6 +1315,14 @@ class MainWindow(QMainWindow):
         # window geometry.
         st = load_state()
         st["last_folder"] = str(path)
+        # Maintain a most-recent-first, de-duplicated recent-folders list.
+        recents = st.get("recent_folders")
+        if not isinstance(recents, list):
+            recents = []
+        p_str = str(path)
+        recents = [r for r in recents if isinstance(r, str) and r != p_str]
+        recents.insert(0, p_str)
+        st["recent_folders"] = recents[:12]
         save_state(st)
 
         if self.stack.currentWidget() is not self.main_view:
@@ -1494,13 +1564,87 @@ class MainWindow(QMainWindow):
         project = self.store.projects.get(name)
         if project is None:
             return
+        folder = project.path
         menu = QMenu(self)
         toggle = QAction("Unpin from top" if project.pinned else "Pin to top", menu)
         toggle.triggered.connect(
             partial(self._toggle_project_pin, project.name)
         )
         menu.addAction(toggle)
+        menu.addSeparator()
+        # Bulletproof actions first.
+        reveal = QAction("Open folder", menu)
+        reveal.triggered.connect(partial(self._reveal_in_file_manager, folder))
+        menu.addAction(reveal)
+        copy = QAction("Copy path", menu)
+        copy.triggered.connect(partial(self._copy_to_clipboard, folder))
+        menu.addAction(copy)
+        term = QAction("Open in terminal", menu)
+        term.triggered.connect(partial(self._open_in_terminal, folder))
+        menu.addAction(term)
+        # Editor action only when a known launcher is on PATH.
+        editor = self._editor_launcher()
+        if editor is not None:
+            name_label, _exe = editor
+            act = QAction(f"Open in {name_label}", menu)
+            act.triggered.connect(partial(self._open_in_editor, folder))
+            menu.addAction(act)
         menu.exec(self.list_widget.viewport().mapToGlobal(pos))
+
+    # ─── Project quick actions ───────────────────────────────────
+
+    def _reveal_in_file_manager(self, folder: str) -> None:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+
+    def _copy_to_clipboard(self, text: str) -> None:
+        QApplication.clipboard().setText(text)
+
+    @staticmethod
+    def _editor_launcher() -> tuple[str, str] | None:
+        """First available GUI editor on PATH, as (display name, executable)."""
+        for label, exe in (
+            ("VS Code", "code"), ("Cursor", "cursor"), ("Zed", "zed"),
+            ("Sublime Text", "subl"),
+        ):
+            found = shutil.which(exe)
+            if found:
+                return label, found
+        return None
+
+    def _open_in_editor(self, folder: str) -> None:
+        editor = self._editor_launcher()
+        if editor is None:
+            return
+        try:
+            subprocess.Popen([editor[1], folder])
+        except OSError as e:
+            QMessageBox.warning(self, "Projectum", f"Couldn't open the editor:\n{e}")
+
+    def _open_in_terminal(self, folder: str) -> None:
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", "-a", "Terminal", folder])
+                return
+            if sys.platform.startswith("win"):
+                # Prefer Windows Terminal, fall back to a cmd window.
+                if shutil.which("wt"):
+                    subprocess.Popen(["wt", "-d", folder])
+                else:
+                    subprocess.Popen("start cmd", cwd=folder, shell=True)
+                return
+            for term in (
+                "x-terminal-emulator", "gnome-terminal", "konsole",
+                "xfce4-terminal", "alacritty", "kitty", "xterm",
+            ):
+                exe = shutil.which(term)
+                if exe:
+                    subprocess.Popen([exe], cwd=folder)
+                    return
+            QMessageBox.information(
+                self, "Projectum", "No terminal emulator was found on PATH."
+            )
+        except OSError as e:
+            QMessageBox.warning(self, "Projectum", f"Couldn't open a terminal:\n{e}")
 
     def _toggle_project_pin(self, name: str) -> None:
         if not self.store:
@@ -1676,20 +1820,40 @@ class MainWindow(QMainWindow):
             mod = p.last_modified()
             self.modified_box._value.setText(self._format_date(mod) if mod else "—")  # type: ignore[attr-defined]
             self.size_box._value.setText("calculating…")  # type: ignore[attr-defined]
+            self.git_box._value.setText("…")  # type: ignore[attr-defined]
             self._set_status_meta(p.completed)
             self._rebuild_tags()
         finally:
             self._loading_details = False
-        # Kick off async size calc
+        # Kick off async size + git probes off the UI thread.
         self._size_pending_for = p.name
         runnable = SizeRunnable(p.name, Path(p.path))
         runnable.signals.done.connect(self._on_size_done)
         self._size_pool.start(runnable)
+        git = GitRunnable(p.name, Path(p.path))
+        git.signals.done.connect(self._on_git_done)
+        self._size_pool.start(git)
 
     def _on_size_done(self, name: str, size: int) -> None:
         if not self.current_project or self.current_project.name != name:
             return
         self.size_box._value.setText(self._format_size(size))  # type: ignore[attr-defined]
+
+    def _on_git_done(self, name: str, info) -> None:
+        if not self.current_project or self.current_project.name != name:
+            return
+        val = self.git_box._value  # type: ignore[attr-defined]
+        if not info:
+            val.setText("—")
+            val.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 13px;")
+            val.setToolTip("Not a git repository")
+            return
+        dirty = info.get("dirty")
+        branch = info.get("branch", "")
+        val.setText(f"{branch} ●" if dirty else branch)
+        color = theme.WARNING if dirty else theme.SUCCESS
+        val.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: 600;")
+        val.setToolTip("Uncommitted changes" if dirty else "Working tree clean")
 
     def _rebuild_tags(self, *, editing: bool = False) -> None:
         self._tag_editor = None

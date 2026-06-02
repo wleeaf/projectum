@@ -571,6 +571,51 @@ class SizeRunnable(QRunnable):
         self.signals.done.emit(self.project_name, total)
 
 
+# ──────────────────────── Async git probe ────────────────────────
+
+
+class _GitSignals(QObject):
+    done = Signal(str, object)  # project name, {"branch", "dirty"} or None
+
+
+class GitRunnable(QRunnable):
+    """Reads a project's git branch + dirty state off-thread in one call.
+
+    ``git status -sb --porcelain`` prints a ``## <branch>...`` header line
+    followed by one line per change, so branch + dirtiness come from a single
+    invocation. Emits ``None`` when the folder isn't a git work tree (or git
+    isn't installed).
+    """
+
+    def __init__(self, project_name: str, root):
+        super().__init__()
+        self.project_name = project_name
+        self.root = str(root)
+        self.signals = _GitSignals()
+
+    def run(self) -> None:
+        import subprocess
+
+        info = None
+        try:
+            out = subprocess.run(
+                ["git", "-C", self.root, "status", "-sb", "--porcelain"],
+                capture_output=True, text=True, timeout=4,
+            )
+            if out.returncode == 0:
+                lines = out.stdout.splitlines()
+                if lines and lines[0].startswith("##"):
+                    seg = lines[0][2:].strip()
+                    branch = seg.split("...")[0].split(" ")[0] or "(detached)"
+                    dirty = len(lines) > 1
+                else:
+                    branch, dirty = "(detached)", bool(lines)
+                info = {"branch": branch, "dirty": dirty}
+        except (OSError, ValueError, subprocess.SubprocessError):
+            info = None
+        self.signals.done.emit(self.project_name, info)
+
+
 # ──────────────── Flow layout ────────────────
 
 
