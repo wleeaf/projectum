@@ -3,6 +3,14 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] — 2026-06-02
+
+### Added
+
+- **5 distinctive themes** to break up a pack that had drifted toward look-alike dark/cool palettes — **Midnight** (true-black OLED, electric teal), **Synthwave** (deep indigo, neon magenta/cyan), **Ember** (warm near-black, orange-red), **Graphite** (colorless charcoal + silver), and **Paper** (crisp white, emerald). **19 themes** total, spread across the color space. Each clears the readability gate and is previewed by a swatch in the theme picker.
+
+[1.6.0]: https://github.com/wleeaf/projectum/releases/tag/v1.6.0
+
 ## [1.5.0] — 2026-06-02
 
 ### Changed
