@@ -37,9 +37,9 @@ from .anims import (
 from .widgets import (
     BrandMark, CalendarScanRunnable, CalendarView, ColorPickerPopup,
     CommandPalette, CompletionToggle, FlowLayout, FrameWrapper, GitRunnable,
-    IconButton, MarkdownHighlighter, PlaylistRow, ProjectRow, SettingsDialog,
-    SizeRunnable, TagChip, TagEditor, TitleBar, TodoRow, UpdateBanner,
-    VideoRow, WindowControlButton,
+    IconButton, MarkdownHighlighter, PlaylistRow, ProjectRow, ScheduleDialog,
+    SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar, TodoRow,
+    UpdateBanner, VideoRow, WindowControlButton,
 )
 from .youtube import PlaylistFetchRunnable
 from .update import UpdateCheckRunnable
@@ -139,6 +139,12 @@ class MainWindow(QMainWindow):
         self._row_items: dict[str, QListWidgetItem] = {}
         self._tag_editor: TagEditor | None = None
         self._calendar_items: list = []
+        self._calendar_scan_gen = 0
+        # Strong refs to in-flight scan runnables. Without this the local
+        # runnable (and its signals QObject) can be GC'd before the queued
+        # cross-thread `done` is delivered, dropping the result.
+        self._calendar_runnables: set = set()
+        self._schedule_dialog: ScheduleDialog | None = None
 
         # Playlists state
         self.current_tab: str = "projects"
@@ -404,8 +410,8 @@ class MainWindow(QMainWindow):
 
     def _build_calendar_view(self) -> QWidget:
         view = CalendarView()
-        view.item_activated.connect(self._on_calendar_item_activated)
-        view.day_clicked.connect(self._on_calendar_day_clicked)
+        view.item_activated.connect(self._open_schedule_dialog)
+        view.item_context.connect(self._on_calendar_item_context)
         return view
 
     def _build_tab_bar(self) -> QWidget:
@@ -3146,11 +3152,23 @@ class MainWindow(QMainWindow):
         if not isinstance(folders, list):
             folders = []
         exclude = cal.resolved_path(str(self.store.root)) if self.store else None
+        # Generation guard: rapid rescans (drop, then tab re-enter) can finish
+        # out of order; only the latest result is allowed to update the view.
+        self._calendar_scan_gen += 1
+        gen = self._calendar_scan_gen
         runnable = CalendarScanRunnable(folders, exclude)
-        runnable.signals.done.connect(self._on_calendar_scanned)
+        self._calendar_runnables.add(runnable)
+        runnable.signals.done.connect(
+            lambda items, skipped, g=gen, r=runnable:
+            self._on_calendar_scanned(items, skipped, g, r)
+        )
         self._size_pool.start(runnable)
 
-    def _on_calendar_scanned(self, disk_items: list, skipped: list) -> None:
+    def _on_calendar_scanned(self, disk_items: list, skipped: list, gen: int,
+                             runnable=None) -> None:
+        self._calendar_runnables.discard(runnable)
+        if gen != self._calendar_scan_gen:
+            return  # a newer scan superseded this one
         # Prepend the open folder's items, read fresh on the UI thread (its
         # in-memory objects are never touched off-thread). scan_disk excluded
         # the open folder, so there's no double-count.
@@ -3158,13 +3176,45 @@ class MainWindow(QMainWindow):
         self._calendar_items = live_items + list(disk_items)
         self.calendar_view.set_items(self._calendar_items)
 
-    def _on_calendar_item_activated(self, item) -> None:
-        # Schedule editing (range picker / unschedule) is wired in the
-        # drag-and-drop pass; display-only for now.
-        pass
+    def _open_schedule_dialog(self, item) -> None:
+        """Open the date-range picker for a scheduled bar or unscheduled chip."""
+        if self._schedule_dialog is not None and self._schedule_dialog.isVisible():
+            self._schedule_dialog.raise_()
+            return
+        dlg = ScheduleDialog(item.title or "(untitled)", item.start, item.end, parent=self)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dlg.scheduled.connect(lambda s, e, it=item: self._apply_schedule(it, s, e))
+        dlg.destroyed.connect(
+            lambda *_a, d=dlg: self._forget_if_current("_schedule_dialog", d)
+        )
+        self._schedule_dialog = dlg
+        dlg.adjustSize()
+        center = self.frameGeometry().center()
+        dlg.move(center.x() - dlg.width() // 2, center.y() - dlg.height() // 2)
+        dlg.setWindowOpacity(0.0)
+        dlg.show()
+        fade_window(dlg, 1.0, duration=140)
 
-    def _on_calendar_day_clicked(self, day) -> None:
-        pass
+    def _on_calendar_item_context(self, item, global_pos) -> None:
+        menu = QMenu(self)
+        edit = QAction("Edit dates…", menu)
+        edit.triggered.connect(lambda: self._open_schedule_dialog(item))
+        menu.addAction(edit)
+        unschedule = QAction("Unschedule", menu)
+        unschedule.triggered.connect(lambda: self._apply_schedule(item, "", ""))
+        menu.addAction(unschedule)
+        menu.exec(global_pos)
+
+    def _apply_schedule(self, item, start: str, end: str) -> None:
+        """Persist a date change for ``item`` and refresh the calendar.
+
+        ``apply_dates`` mutates the passed ScheduledItem in place and routes the
+        write to the right store, so re-feeding the current list gives instant
+        feedback (the item hops between grid and tray immediately); the async
+        rescan then reconciles persisted truth across all folders."""
+        if cal.apply_dates(self.store, item, start, end):
+            self.calendar_view.set_items(self._calendar_items)
+            self._rescan_calendar()
 
     def _apply_settings(self, settings: dict) -> None:
         new_theme = settings.get("theme", theme.DEFAULT_THEME)

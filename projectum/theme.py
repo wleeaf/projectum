@@ -1190,6 +1190,129 @@ QPushButton#updateBannerButton:hover {{
     background-color: {ACCENT_HOVER};
     border-color: {ACCENT_HOVER};
 }}
+
+/* ── Calendar ── */
+QLabel#calMonthTitle {{
+    color: {TEXT};
+    font-size: {size + 4}px;
+    font-weight: 600;
+}}
+
+QPushButton#calNav {{
+    background-color: {SURFACE_2};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    font-size: {size + 4}px;
+    font-weight: 600;
+}}
+
+QPushButton#calNav:hover {{
+    background-color: {SURFACE_3};
+    border-color: {ACCENT};
+}}
+
+QPushButton#calToday {{
+    background-color: transparent;
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    padding: 5px 14px;
+    font-weight: 600;
+}}
+
+QPushButton#calToday:hover {{
+    border-color: {ACCENT};
+    color: {ACCENT};
+}}
+
+QLabel#calLegend {{
+    color: {TEXT_MUTED};
+    font-size: {max(size - 2, 10)}px;
+}}
+
+QWidget#calTray {{
+    background-color: {SURFACE_2};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+}}
+
+QLabel#calTrayLabel {{
+    color: {TEXT_MUTED};
+    font-size: {max(size - 2, 10)}px;
+    font-weight: 700;
+}}
+
+QScrollArea#calTrayScroll {{
+    background: transparent;
+    border: none;
+}}
+
+QWidget#scheduleDialog {{
+    background-color: {SURFACE};
+    border: 1px solid {BORDER};
+    border-radius: 14px;
+}}
+
+QLabel#scheduleTitle {{
+    color: {TEXT};
+    font-size: {size + 3}px;
+    font-weight: 600;
+}}
+
+QLabel#scheduleSub {{
+    color: {ACCENT};
+    font-size: {size}px;
+    font-weight: 600;
+}}
+
+QLabel#scheduleFieldLabel {{
+    color: {TEXT_MUTED};
+    font-size: {size}px;
+}}
+
+QLabel#scheduleHint {{
+    color: {TEXT_MUTED};
+    font-size: {max(size - 2, 10)}px;
+}}
+
+QDateEdit#scheduleDate {{
+    background-color: {SURFACE_2};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    padding: 5px 8px;
+}}
+
+QDateEdit#scheduleDate:focus {{
+    border-color: {ACCENT};
+}}
+
+QDateEdit#scheduleDate::drop-down {{
+    border: none;
+    width: 22px;
+}}
+
+QPushButton#scheduleClear, QPushButton#scheduleCancel {{
+    background-color: transparent;
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    padding: 6px 14px;
+}}
+
+QPushButton#scheduleClear:hover {{
+    border-color: {DANGER};
+    color: {DANGER};
+}}
+
+QPushButton#scheduleCancel:hover {{
+    border-color: {ACCENT};
+}}
+
+QPushButton#scheduleClear:disabled {{
+    color: {TEXT_MUTED};
+}}
 """
 
 

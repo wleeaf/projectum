@@ -16,7 +16,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QLabel,
-    QLayout, QLineEdit, QPushButton, QSizePolicy,
+    QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
 )
 
 from .anims import fade_window_close
@@ -2187,6 +2187,7 @@ class MonthGrid(QWidget):
 
     day_clicked = Signal(object)       # a datetime.date
     item_activated = Signal(object)    # a ScheduledItem
+    item_context = Signal(object, QPoint)  # (ScheduledItem, global pos) on right-click
 
     PAD = 8
     HEADER_H = 26
@@ -2439,14 +2440,79 @@ class MonthGrid(QWidget):
                 self.day_clicked.emit(hit[1])
                 event.accept()
                 return
+        elif event.button() == Qt.MouseButton.RightButton:
+            hit = self._hit(event.position())
+            if hit and hit[0] == "item":
+                self.item_context.emit(hit[1], event.globalPosition().toPoint())
+                event.accept()
+                return
         super().mousePressEvent(event)
 
 
+class _TrayChip(QWidget):
+    """A draggable chip for one unscheduled item in the calendar's tray."""
+
+    activated = Signal(object)            # left-click -> schedule it
+    context = Signal(object, QPoint)      # right-click -> context menu
+
+    def __init__(self, item, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.item = item
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedHeight(28)
+        self.setToolTip(f"{item.title}  ·  {item.home_name}")
+        self._press_pos: QPoint | None = None
+
+    def _color(self) -> str:
+        return getattr(theme, KIND_COLOR_KEY.get(self.item.kind, "ACCENT"), theme.ACCENT)
+
+    def sizeHint(self) -> QSize:
+        fm = QFontMetrics(self.font())
+        w = fm.horizontalAdvance(self.item.title or "(untitled)")
+        return QSize(min(220, w + 26), 28)
+
+    def paintEvent(self, _event) -> None:
+        with QPainter(self) as p:
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            fill = QColor(self._color())
+            if self.item.done:
+                fill.setAlpha(110)
+            r = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(fill)
+            p.drawRoundedRect(r, 6, 6)
+            # color dot + title
+            p.setBrush(QColor(_ink_on(fill.name())))
+            ink = QColor(_ink_on(fill.name()))
+            p.setPen(ink)
+            f = QFont(self.font())
+            f.setStrikeOut(self.item.done)
+            p.setFont(f)
+            fm = QFontMetrics(f)
+            text_rect = r.adjusted(9, 0, -7, 0)
+            label = fm.elidedText(self.item.title or "(untitled)",
+                                  Qt.TextElideMode.ElideRight, int(text_rect.width()))
+            p.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                       label)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.activated.emit(self.item)
+            event.accept()
+        elif event.button() == Qt.MouseButton.RightButton:
+            self.context.emit(self.item, event.globalPosition().toPoint())
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+
 class CalendarView(QWidget):
-    """The Calendar tab: month navigation + legend over a :class:`MonthGrid`."""
+    """The Calendar tab: month navigation + legend over a :class:`MonthGrid`,
+    with an Unscheduled tray of items that don't yet have a date."""
 
     day_clicked = Signal(object)
     item_activated = Signal(object)
+    item_context = Signal(object, QPoint)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -2495,12 +2561,69 @@ class CalendarView(QWidget):
         self.grid = MonthGrid()
         self.grid.day_clicked.connect(self.day_clicked.emit)
         self.grid.item_activated.connect(self.item_activated.emit)
+        self.grid.item_context.connect(self.item_context.emit)
         root.addWidget(self.grid, 1)
 
+        self._build_tray(root)
         self._refresh_title()
 
+    def _build_tray(self, root: QVBoxLayout) -> None:
+        self._tray = QWidget()
+        self._tray.setObjectName("calTray")
+        # Guarantee the QSS panel background paints (plain QWidget otherwise
+        # ignores background-color unless it's a styled-background widget).
+        self._tray.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        tv = QVBoxLayout(self._tray)
+        tv.setContentsMargins(12, 8, 12, 10)
+        tv.setSpacing(6)
+        self._tray_label = QLabel("Unscheduled")
+        self._tray_label.setObjectName("calTrayLabel")
+        tv.addWidget(self._tray_label)
+
+        self._tray_scroll = QScrollArea()
+        self._tray_scroll.setObjectName("calTrayScroll")
+        self._tray_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._tray_scroll.setWidgetResizable(True)
+        self._tray_scroll.setFixedHeight(34)
+        self._tray_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._tray_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # The scroll area's viewport ignores the global sheet reliably; force it
+        # transparent in code so the #calTray panel shows through.
+        self._tray_scroll.viewport().setStyleSheet("background: transparent;")
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent;")
+        self._tray_row = QHBoxLayout(inner)
+        self._tray_row.setContentsMargins(0, 0, 0, 0)
+        self._tray_row.setSpacing(6)
+        self._tray_row.addStretch(1)
+        self._tray_scroll.setWidget(inner)
+        tv.addWidget(self._tray_scroll)
+
+        root.addWidget(self._tray)
+        self._tray.setVisible(False)
+
     def set_items(self, items: list) -> None:
-        self.grid.set_items(items)
+        scheduled = [it for it in items if it.scheduled]
+        unscheduled = [it for it in items if not it.scheduled]
+        self.grid.set_items(scheduled)
+        self._populate_tray(unscheduled)
+
+    def _populate_tray(self, unscheduled: list) -> None:
+        # Drop existing chips (everything before the trailing stretch).
+        while self._tray_row.count() > 1:
+            taken = self._tray_row.takeAt(0)
+            w = taken.widget()
+            if w is not None:
+                w.deleteLater()
+        for it in unscheduled:
+            chip = _TrayChip(it)
+            chip.activated.connect(self.item_activated.emit)
+            chip.context.connect(self.item_context.emit)
+            self._tray_row.insertWidget(self._tray_row.count() - 1, chip)
+        self._tray_label.setText(f"Unscheduled · {len(unscheduled)}")
+        self._tray.setVisible(bool(unscheduled))
 
     def set_month(self, year: int, month: int) -> None:
         self.grid.set_month(year, month)
@@ -2528,3 +2651,111 @@ class CalendarView(QWidget):
         self.grid.set_today(today)
         self.grid.set_month(today.year, today.month)
         self._refresh_title()
+
+
+class ScheduleDialog(QWidget):
+    """Frameless popup to set or clear an item's inclusive start/end dates.
+
+    Emits :attr:`scheduled` with ISO ``(start, end)`` on Apply (end clamped to
+    ≥ start), or ``("", "")`` on Unschedule. Cancel/Esc dismiss without emitting.
+    """
+
+    scheduled = Signal(str, str)
+
+    def __init__(self, title: str, start_iso: str, end_iso: str,
+                 parent: QWidget | None = None):
+        super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        from PySide6.QtWidgets import QDateEdit
+        from PySide6.QtCore import QDate, QLocale
+        # Keep dates English to match the rest of the UI (weekday/month names).
+        en_locale = QLocale(QLocale.Language.English)
+        self.setObjectName("scheduleDialog")
+        self.setMinimumWidth(300)
+        self._was_scheduled = bool(start_iso)
+
+        def to_qdate(iso: str) -> "QDate":
+            d = QDate.fromString(iso, Qt.DateFormat.ISODate)
+            return d if d.isValid() else QDate.currentDate()
+
+        start_q = to_qdate(start_iso)
+        end_q = to_qdate(end_iso or start_iso)
+
+        v = QVBoxLayout(self)
+        v.setContentsMargins(22, 18, 22, 18)
+        v.setSpacing(14)
+
+        head = QLabel("Schedule")
+        head.setObjectName("scheduleTitle")
+        v.addWidget(head)
+        sub = QLabel(title)
+        sub.setObjectName("scheduleSub")
+        sub.setWordWrap(True)
+        v.addWidget(sub)
+
+        def field(label_text: str, qdate: "QDate") -> "QDateEdit":
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            lbl = QLabel(label_text)
+            lbl.setObjectName("scheduleFieldLabel")
+            lbl.setFixedWidth(48)
+            row.addWidget(lbl)
+            edit = QDateEdit()
+            edit.setObjectName("scheduleDate")
+            edit.setLocale(en_locale)
+            edit.setCalendarPopup(True)
+            edit.setDisplayFormat("ddd, MMM d yyyy")
+            edit.setDate(qdate)
+            cal_popup = edit.calendarWidget()
+            if cal_popup is not None:
+                cal_popup.setLocale(en_locale)
+            row.addWidget(edit, 1)
+            v.addLayout(row)
+            return edit
+
+        self.start_edit = field("Start", start_q)
+        self.end_edit = field("End", end_q)
+
+        hint = QLabel("End date is inclusive.")
+        hint.setObjectName("scheduleHint")
+        v.addWidget(hint)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        self.unschedule_btn = QPushButton("Unschedule")
+        self.unschedule_btn.setObjectName("scheduleClear")
+        self.unschedule_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.unschedule_btn.setEnabled(self._was_scheduled)
+        self.unschedule_btn.clicked.connect(self._unschedule)
+        btns.addWidget(self.unschedule_btn)
+        btns.addStretch(1)
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("scheduleCancel")
+        cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel.clicked.connect(self.close)
+        btns.addWidget(cancel)
+        self.apply_btn = QPushButton("Apply")
+        self.apply_btn.setObjectName("primary")
+        self.apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.apply_btn.setDefault(True)
+        self.apply_btn.clicked.connect(self._apply)
+        btns.addWidget(self.apply_btn)
+        v.addLayout(btns)
+
+    def _apply(self) -> None:
+        s = self.start_edit.date()
+        e = self.end_edit.date()
+        if e < s:
+            e = s
+        fmt = Qt.DateFormat.ISODate
+        self.scheduled.emit(s.toString(fmt), e.toString(fmt))
+        self.close()
+
+    def _unschedule(self) -> None:
+        self.scheduled.emit("", "")
+        self.close()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)

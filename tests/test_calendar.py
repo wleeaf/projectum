@@ -1,0 +1,247 @@
+"""Calendar: pure layout/scan/write-back logic + widget and integration."""
+
+import json
+from datetime import date
+
+from projectum import calendar as cal
+from projectum.store import ProjectStore
+
+
+def _folder(tmp_path, name, subdirs=()):
+    f = tmp_path / name
+    f.mkdir()
+    for s in subdirs:
+        (f / s).mkdir()
+    return f
+
+
+def _si(start, end="", kind="todo", home="/h", key="k", title="t", done=False):
+    return cal.ScheduledItem(home, kind, key, title, start, end, done)
+
+
+# ── pure date helpers ──
+
+def test_parse_date():
+    assert cal.parse_date("2026-06-04") == date(2026, 6, 4)
+    assert cal.parse_date("") is None
+    assert cal.parse_date("nonsense") is None
+    assert cal.parse_date(None) is None
+
+
+def test_month_grid_start():
+    # June 2026 starts on a Monday -> grid starts on the 1st.
+    assert cal.month_grid_start(2026, 6) == date(2026, 6, 1)
+    # July 2026 starts on a Wednesday -> grid backs up to Mon Jun 29.
+    assert cal.month_grid_start(2026, 7) == date(2026, 6, 29)
+
+
+# ── layout_month edge cases ──
+
+def test_layout_single_day():
+    gs = cal.month_grid_start(2026, 6)
+    bars = cal.layout_month([_si("2026-06-03")], gs)
+    assert len(bars) == 1
+    b = bars[0]
+    assert (b.week, b.col_start, b.col_end) == (0, 2, 2)
+    assert not b.continues_left and not b.continues_right
+
+
+def test_layout_week_boundary():
+    gs = cal.month_grid_start(2026, 6)
+    bars = sorted(cal.layout_month([_si("2026-06-06", "2026-06-09")], gs),
+                  key=lambda b: b.week)
+    assert len(bars) == 2
+    assert (bars[0].week, bars[0].col_start, bars[0].col_end) == (0, 5, 6)
+    assert bars[0].continues_right and not bars[0].continues_left
+    assert (bars[1].week, bars[1].col_start, bars[1].col_end) == (1, 0, 1)
+    assert bars[1].continues_left and not bars[1].continues_right
+
+
+def test_layout_clips_before_and_after_window():
+    gs = cal.month_grid_start(2026, 6)  # 2026-06-01 .. 2026-07-12
+    before = cal.layout_month([_si("2026-05-28", "2026-06-02")], gs)[0]
+    assert before.week == 0 and before.col_start == 0 and before.continues_left
+    after = cal.layout_month([_si("2026-07-10", "2026-07-20")], gs)[0]
+    assert after.week == 5 and after.col_end == 6 and after.continues_right
+
+
+def test_layout_three_overlapping_lanes():
+    gs = cal.month_grid_start(2026, 6)
+    bars = cal.layout_month([
+        _si("2026-06-02", "2026-06-04"),
+        _si("2026-06-03", "2026-06-05"),
+        _si("2026-06-01", "2026-06-03"),
+    ], gs)
+    assert sorted(b.lane for b in bars) == [0, 1, 2]
+
+
+def test_layout_spanning_bar_gets_low_lane():
+    # A multi-day bar sharing a busy start day must stay visible across its
+    # whole span (low lane), not be buried by the single-day items.
+    gs = cal.month_grid_start(2026, 6)
+    items = [_si("2026-06-15", "2026-06-19"),  # spanning
+             _si("2026-06-15"), _si("2026-06-15"), _si("2026-06-15")]
+    bars = cal.layout_month(items, gs)
+    spanning = [b for b in bars if b.item_index == 0]
+    assert spanning and all(b.lane == 0 for b in spanning)
+
+
+def test_layout_ignores_unscheduled():
+    gs = cal.month_grid_start(2026, 6)
+    assert cal.layout_month([_si(""), _si("2025-01-01", "2025-01-02")], gs) == []
+
+
+def test_items_on_day_inclusive():
+    items = [_si("2026-06-10", "2026-06-12")]
+    assert len(cal.items_on_day(items, date(2026, 6, 10))) == 1
+    assert len(cal.items_on_day(items, date(2026, 6, 12))) == 1
+    assert cal.items_on_day(items, date(2026, 6, 13)) == []
+
+
+def test_unscheduled_filter():
+    items = [_si("2026-06-01"), _si(""), _si("")]
+    assert len(cal.unscheduled(items)) == 2
+
+
+# ── scan ──
+
+def test_scan_disk_crossfolder_and_exclude(tmp_path):
+    fa = _folder(tmp_path, "A", ["src"])
+    fb = _folder(tmp_path, "B", ["src"])
+    sa = ProjectStore(fa); sa.projects["src"].start = "2026-06-02"; sa.save()
+    sb = ProjectStore(fb); sb.projects["src"].start = "2026-06-09"; sb.save()
+    # exclude A -> only B scanned; collision-safe (two distinct "src").
+    items, skipped = cal.scan_disk([str(fa) + "/", str(fb)],
+                                   cal.resolved_path(str(fa)))
+    assert skipped == []
+    srcs = [i for i in items if i.key == "src"]
+    assert len(srcs) == 1 and cal.resolved_path(srcs[0].home) == cal.resolved_path(str(fb))
+
+
+def test_scan_disk_dedups_by_resolved_path(tmp_path):
+    fa = _folder(tmp_path, "A", ["src"])
+    sa = ProjectStore(fa); sa.projects["src"].start = "2026-06-02"; sa.save()
+    items, _ = cal.scan_disk([str(fa), str(fa) + "/", str(fa)])
+    assert len([i for i in items if i.key == "src"]) == 1
+
+
+def test_scan_disk_failsoft(tmp_path):
+    good = _folder(tmp_path, "good", ["p"])
+    ProjectStore(good).save()
+    bad = tmp_path / "bad"; bad.mkdir()
+    (bad / ".projectum.json").write_text("{ not valid json ")
+    # A corrupt folder must not break the scan for the rest.
+    items, skipped = cal.scan_disk([str(good), str(bad)])
+    assert any(cal.resolved_path(i.home) == cal.resolved_path(str(good)) for i in items)
+
+
+# ── apply_dates routing ──
+
+def test_apply_dates_live_store(tmp_path):
+    fa = _folder(tmp_path, "A", ["alpha"])
+    live = ProjectStore(fa)
+    item = cal.ScheduledItem(str(fa) + "/", "project", "alpha", "alpha")  # mismatched form
+    assert cal.apply_dates(live, item, "2026-06-20", "2026-06-25")
+    assert live.projects["alpha"].start == "2026-06-20"
+    # a later live save must not clobber it
+    live.add_todo("x"); live.save()
+    assert ProjectStore(fa).projects["alpha"].start == "2026-06-20"
+
+
+def test_apply_dates_on_demand_folder(tmp_path):
+    fa = _folder(tmp_path, "A", ["alpha"])      # live
+    fb = _folder(tmp_path, "B", ["beta"])        # on-demand
+    live = ProjectStore(fa)
+    item = cal.ScheduledItem(str(fb), "project", "beta", "beta")
+    assert cal.apply_dates(live, item, "2026-07-01", "")  # single day -> end := start
+    reloaded = ProjectStore(fb)
+    assert reloaded.projects["beta"].start == "2026-07-01" == reloaded.projects["beta"].end
+    assert "alpha" not in [n for n, p in ProjectStore(fa).projects.items() if p.start]
+
+
+def test_apply_dates_orphan(tmp_path):
+    fb = _folder(tmp_path, "B", ["beta"])
+    sb = ProjectStore(fb); sb.projects["beta"].start = "2026-06-01"; sb.save()
+    (fb / "beta").rmdir()  # beta now orphaned
+    item = next(i for i in cal.scan_disk([str(fb)])[0] if i.key == "beta")
+    assert item.orphan
+    assert cal.apply_dates(None, item, "2026-08-01", "2026-08-03")
+    raw = json.loads((fb / ".projectum.json").read_text())
+    assert raw["_orphans"]["beta"]["start"] == "2026-08-01"
+
+
+def test_apply_dates_normalizes_and_unschedules(tmp_path):
+    fa = _folder(tmp_path, "A", ["alpha"])
+    live = ProjectStore(fa)
+    item = cal.ScheduledItem(str(fa), "project", "alpha", "alpha")
+    # reversed range gets swapped
+    cal.apply_dates(live, item, "2026-06-10", "2026-06-05")
+    assert live.projects["alpha"].start == "2026-06-05"
+    assert live.projects["alpha"].end == "2026-06-10"
+    # empty start clears both
+    cal.apply_dates(live, item, "", "2026-06-10")
+    assert live.projects["alpha"].start == "" and live.projects["alpha"].end == ""
+
+
+def test_collect_items_combines_live_and_disk(tmp_path):
+    fa = _folder(tmp_path, "A", ["alpha"])
+    fb = _folder(tmp_path, "B", ["beta"])
+    sa = ProjectStore(fa); sa.projects["alpha"].start = "2026-06-02"; sa.save()
+    sb = ProjectStore(fb); sb.projects["beta"].start = "2026-06-05"; sb.save()
+    live = ProjectStore(fa)
+    items, _ = cal.collect_items(live, [str(fa), str(fb)])
+    keys = {(cal.resolved_path(i.home), i.key) for i in items if i.kind == "project"}
+    assert (cal.resolved_path(str(fa)), "alpha") in keys
+    assert (cal.resolved_path(str(fb)), "beta") in keys
+
+
+# ── widgets ──
+
+def test_calendarview_splits_tray_and_grid(qapp):
+    from projectum.widgets import CalendarView
+    v = CalendarView()
+    v.set_items([_si("2026-06-02", kind="project"), _si(""), _si("")])
+    # isHidden() reflects the setVisible intent without showing the top-level.
+    assert not v._tray.isHidden()                    # 2 unscheduled -> tray shown
+    assert "· 2" in v._tray_label.text()
+    assert len(v.grid._items) == 1                   # 1 scheduled -> on the grid
+    v.set_items([_si("2026-06-02")])
+    assert v._tray.isHidden()                        # nothing unscheduled -> hidden
+    v.deleteLater()
+
+
+def test_schedule_dialog_emits_iso(qapp):
+    from projectum.widgets import ScheduleDialog
+    got = []
+    d = ScheduleDialog("X", "2026-06-04", "2026-06-10")
+    d.scheduled.connect(lambda s, e: got.append((s, e)))
+    d._apply()
+    assert got == [("2026-06-04", "2026-06-10")]
+    d2 = ScheduleDialog("X", "2026-06-04", "2026-06-10")
+    d2.scheduled.connect(lambda s, e: got.append((s, e)))
+    d2._unschedule()
+    assert got[-1] == ("", "")
+
+
+# ── integration ──
+
+def test_schedule_flow_persists_and_moves(window, qapp, tmp_path):
+    fa = _folder(tmp_path, "work", ["alpha"])
+    s = ProjectStore(fa)
+    s.add_todo("Task A")
+    s.save()
+    window.load_folder(fa)
+    # populate the calendar synchronously (bypass the async scan)
+    window._calendar_items = cal.items_from_store(window.store)
+    window.calendar_view.set_items(window._calendar_items)
+    task = next(i for i in window._calendar_items if i.title == "Task A")
+    assert not task.scheduled
+
+    window._apply_schedule(task, "2026-06-11", "2026-06-13")
+    qapp.processEvents()
+    reloaded = next(t for t in ProjectStore(fa).todos if t.text == "Task A")
+    assert reloaded.start == "2026-06-11" and reloaded.end == "2026-06-13"
+
+    window._apply_schedule(task, "", "")
+    qapp.processEvents()
+    assert next(t for t in ProjectStore(fa).todos if t.text == "Task A").start == ""
