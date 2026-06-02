@@ -16,7 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Tag chips are now legible on every theme.** They previously painted the fixed pastel palette colors as text, which was unreadable on light backgrounds; the chip text/border now uses a contrast-adjusted "ink" (hue preserved) derived from the tag color and the active theme.
 - **Readability fixes across themes** — corrected 15 sub-floor colors (muted section labels and semantic status/git/error text on light themes; error text on Nord and Solarized Dark) so all text clears the contrast gate.
 
-[1.4.0]: https://github.com/ts-solidarity/projectum/releases/tag/v1.4.0
+[1.4.0]: https://github.com/wleeaf/projectum/releases/tag/v1.4.0
 
 ## [1.3.0] — 2026-05-30
 
@@ -32,7 +32,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **Mouse-wheel scrolling** now ticks at the display's actual refresh rate (read from the shown window, with a `PreciseTimer`) instead of a fixed ~60 fps, so the wheel glide is as smooth as dragging the scrollbar on high-refresh panels. Set `PROJECTUM_SCROLL_FPS` to override if your setup misreports its refresh rate.
 
-[1.3.0]: https://github.com/ts-solidarity/projectum/releases/tag/v1.3.0
+[1.3.0]: https://github.com/wleeaf/projectum/releases/tag/v1.3.0
 
 ## [1.2.0] — 2026-05-30
 
@@ -44,7 +44,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **Smooth mouse-wheel scrolling** rebuilt as a single continuous glide toward an accumulating target, eased with frame-rate-independent damping, replacing the per-notch ease-out that decelerated from a standstill on every notch and stuttered on fast spins. Trackpad / high-precision scrolling continues to use the native low-latency path.
 
-[1.2.0]: https://github.com/ts-solidarity/projectum/releases/tag/v1.2.0
+[1.2.0]: https://github.com/wleeaf/projectum/releases/tag/v1.2.0
 
 ## [1.1.0] — 2026-05-29
 
@@ -106,5 +106,5 @@ The first stable release.
 - `QApplication.setFont` + per-window broadcast on settings change, so font family selection actually applies (was previously silently overridden by QSS).
 - Custom-painted widgets read `theme.X` lazily so theme changes don't require widget rebuilds for repaints.
 
-[1.1.0]: https://github.com/ts-solidarity/projectum/releases/tag/v1.1.0
-[1.0.0]: https://github.com/ts-solidarity/projectum/releases/tag/v1.0.0
+[1.1.0]: https://github.com/wleeaf/projectum/releases/tag/v1.1.0
+[1.0.0]: https://github.com/wleeaf/projectum/releases/tag/v1.0.0

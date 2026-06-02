@@ -4,9 +4,9 @@
 
 **A keyboard-first desktop tracker for the projects, playlists, tasks, and notes that live in a folder on your disk.**
 
-[![CI](https://github.com/ts-solidarity/projectum/actions/workflows/ci.yml/badge.svg)](https://github.com/ts-solidarity/projectum/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/ts-solidarity/projectum?sort=semver)](https://github.com/ts-solidarity/projectum/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/ts-solidarity/projectum/total)](https://github.com/ts-solidarity/projectum/releases)
+[![CI](https://github.com/wleeaf/projectum/actions/workflows/ci.yml/badge.svg)](https://github.com/wleeaf/projectum/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/wleeaf/projectum?sort=semver)](https://github.com/wleeaf/projectum/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/wleeaf/projectum/total)](https://github.com/wleeaf/projectum/releases)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![PySide6](https://img.shields.io/badge/PySide6-Qt%206-41cd52.svg)](https://doc.qt.io/qtforpython/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -32,7 +32,7 @@ Everything for a folder is stored in a single, human‑readable `.projectum.json
 Grab the latest self‑contained build, mark it executable, and run it. No Python, no `pip`, nothing to install.
 
 ```bash
-wget https://github.com/ts-solidarity/projectum/releases/latest/download/Projectum-x86_64.AppImage
+wget https://github.com/wleeaf/projectum/releases/latest/download/Projectum-x86_64.AppImage
 chmod +x Projectum-x86_64.AppImage
 ./Projectum-x86_64.AppImage
 ```
@@ -41,7 +41,7 @@ The AppImage bundles Python, Qt, PySide6, and `yt-dlp`, and runs on any reasonab
 
 ### Windows & macOS
 
-Grab `Projectum-windows-x64.exe` or `Projectum-macos.dmg` from the [latest release](https://github.com/ts-solidarity/projectum/releases/latest).
+Grab `Projectum-windows-x64.exe` or `Projectum-macos.dmg` from the [latest release](https://github.com/wleeaf/projectum/releases/latest).
 
 > **Note:** these builds are **unsigned**, so the OS will warn on first launch.
 > - **Windows:** SmartScreen → **More info → Run anyway**.
@@ -54,7 +54,7 @@ Grab `Projectum-windows-x64.exe` or `Projectum-macos.dmg` from the [latest relea
 Requires **Python ≥ 3.10**.
 
 ```bash
-git clone https://github.com/ts-solidarity/projectum.git
+git clone https://github.com/wleeaf/projectum.git
 cd projectum
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate

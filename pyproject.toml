@@ -32,8 +32,8 @@ dependencies = [
 projectum = "projectum.app:run"
 
 [project.urls]
-Homepage = "https://github.com/ts-solidarity/projectum"
-Issues = "https://github.com/ts-solidarity/projectum/issues"
+Homepage = "https://github.com/wleeaf/projectum"
+Issues = "https://github.com/wleeaf/projectum/issues"
 
 [tool.setuptools]
 packages = ["projectum"]
