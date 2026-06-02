@@ -123,26 +123,39 @@ def parse_delta(text: str) -> int | None:
     return total if found and total > 0 else None
 
 
+# Whole-unit durations the picker offers (a month is treated as 30 days).
+DELTA_UNIT_MINUTES = {"days": 1440, "weeks": 10080, "months": 43200}
+
+
 def format_delta(minutes: int) -> str:
-    """Render total minutes as a compact human duration ('2 weeks', '1d 4h')."""
+    """Render total minutes as a clean human duration ('3 months', '2 weeks').
+
+    Prefers whole months/weeks/days; only falls back to hours/minutes for legacy
+    values that aren't a whole number of days."""
     try:
         minutes = int(minutes)
     except (TypeError, ValueError):
         return "?"
     if minutes <= 0:
-        return "0m"
-    if minutes % 10080 == 0:
-        n = minutes // 10080
-        return f"{n} week{'s' if n != 1 else ''}"
-    if minutes % 1440 == 0:
-        n = minutes // 1440
-        return f"{n} day{'s' if n != 1 else ''}"
+        return "0 days"
+    for size, label in ((43200, "month"), (10080, "week"), (1440, "day")):
+        if minutes % size == 0:
+            n = minutes // size
+            return f"{n} {label}{'s' if n != 1 else ''}"
     parts = []
     for label, size in (("d", 1440), ("h", 60), ("m", 1)):
         if minutes >= size:
             parts.append(f"{minutes // size}{label}")
             minutes %= size
     return " ".join(parts)
+
+
+def delta_from_unit(n: int, unit: str) -> EntityRef | None:
+    """Build a delta node from a count + whole unit (days/weeks/months)."""
+    size = DELTA_UNIT_MINUTES.get(unit)
+    if size is None or n <= 0:
+        return None
+    return EntityRef(KIND_DELTA, "", str(int(n) * size))
 
 
 def delta_ref(text: str) -> EntityRef | None:

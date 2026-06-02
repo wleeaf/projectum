@@ -8,12 +8,12 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import (
-    Qt, QRect, QRectF, QPointF, QPoint, QMimeData, Property, Signal, QObject,
+    Qt, QRect, QRectF, QPointF, QPoint, Property, Signal, QObject,
     QEvent, QRunnable, QSize,
 )
 from PySide6.QtGui import (
     QPainter, QColor, QBrush, QPen, QFont, QFontMetrics, QPainterPath,
-    QDrag, QMouseEvent, QSyntaxHighlighter, QTextCharFormat,
+    QMouseEvent, QSyntaxHighlighter, QTextCharFormat,
 )
 from PySide6.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QLabel,
@@ -27,9 +27,6 @@ from . import links as links_mod
 from . import theme
 from .theme import TAG_PALETTE, tag_color
 
-
-# Drag MIME marker for an unscheduled tray chip being dropped on the grid.
-SCHEDULE_MIME = "application/x-projectum-schedule"
 
 # Per-entity-kind accent (resolved against the active theme at paint). Shared by
 # the calendar bars, the Unscheduled tray, the Links dialog, and the graph view.
@@ -2210,11 +2207,10 @@ class MonthGrid(QWidget):
     item_activated = Signal(object)    # a ScheduledItem
     item_context = Signal(object, QPoint)  # (ScheduledItem, global pos) on right-click
     item_rescheduled = Signal(object, str, str)  # (item, start_iso, end_iso) after drag
-    external_drop = Signal(object)     # a date — a tray chip was dropped here
 
     PAD = 8
     HEADER_H = 26
-    DAY_NUM_H = 24
+    DAY_NUM_H = 30
     LANE_H = 18
     LANE_GAP = 3
     BAR_PAD_X = 3
@@ -2231,12 +2227,10 @@ class MonthGrid(QWidget):
         self._bars: list = []
         self._drag: dict | None = None   # in-progress move/resize of a bar
         self._day_sel: dict | None = None  # in-progress day / frame selection
-        self._drop_day = None            # day highlighted under an external drop
         self._allow_bar_drag = True      # False -> bars click-only (links mode)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(380)
         self.setMouseTracking(True)
-        self.setAcceptDrops(True)
 
     # ── public API ──
     def set_bars_draggable(self, value: bool) -> None:
@@ -2335,8 +2329,6 @@ class MonthGrid(QWidget):
                 self._paint_day_span(p, *self._drag["preview"])
             elif self._day_sel is not None:
                 self._paint_day_span(p, self._day_sel["start"], self._day_sel["cur"])
-            elif self._drop_day is not None:
-                self._paint_day_span(p, self._drop_day, self._drop_day)
 
     def _paint_day_span(self, p: QPainter, start: date, end: date) -> None:
         """Translucent accent highlight over a [start, end] day range — the
@@ -2368,7 +2360,8 @@ class MonthGrid(QWidget):
 
     def _paint_cells(self, p: QPainter, cw: float, ch: float) -> None:
         num_font = QFont(self.font())
-        num_font.setPointSizeF(max(8.5, self.font().pointSizeF() - 0.5))
+        num_font.setPointSizeF(max(13.0, self.font().pointSizeF() + 4))
+        num_font.setBold(True)
         for week in range(6):
             for col in range(7):
                 d = self._cell_date(week, col)
@@ -2387,22 +2380,19 @@ class MonthGrid(QWidget):
                 p.setPen(QPen(QColor(theme.BORDER), 1.0))
                 p.drawRoundedRect(cell, 7, 7)
 
-                # Day number (today gets an accent badge).
+                # Big day number, centered in the top strip (today: accent badge).
                 p.setFont(num_font)
-                num_box = QRectF(cell.left() + 6, cell.top() + 3,
-                                 cell.width() - 12, self.DAY_NUM_H - 4)
+                badge_d = min(self.DAY_NUM_H - 4, 26)
+                num_box = QRectF(cell.center().x() - badge_d / 2, cell.top() + 3,
+                                 badge_d, badge_d)
                 if is_today:
-                    badge_d = min(self.DAY_NUM_H - 6, 22)
-                    badge = QRectF(num_box.left() - 2, num_box.top(), badge_d, badge_d)
                     p.setBrush(QColor(theme.ACCENT))
                     p.setPen(Qt.PenStyle.NoPen)
-                    p.drawRoundedRect(badge, badge_d / 2, badge_d / 2)
+                    p.drawRoundedRect(num_box, badge_d / 2, badge_d / 2)
                     p.setPen(QColor(_ink_on(theme.ACCENT)))
-                    p.drawText(badge, Qt.AlignmentFlag.AlignCenter, str(d.day))
                 else:
                     p.setPen(QColor(theme.TEXT if in_month else theme.TEXT_MUTED))
-                    p.drawText(num_box, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                               str(d.day))
+                p.drawText(num_box, Qt.AlignmentFlag.AlignCenter, str(d.day))
 
     def _paint_bars(self, p: QPainter, cw: float, ch: float) -> None:
         pitch = self._lane_pitch()
@@ -2601,115 +2591,39 @@ class MonthGrid(QWidget):
             return
         super().mouseReleaseEvent(event)
 
-    # ── drag-and-drop from the Unscheduled tray ──
-    def dragEnterEvent(self, event) -> None:
-        if event.mimeData().hasFormat(SCHEDULE_MIME):
-            event.acceptProposedAction()
 
-    def dragMoveEvent(self, event) -> None:
-        if event.mimeData().hasFormat(SCHEDULE_MIME):
-            self._drop_day = self._day_at(event.position())
-            self.update()
-            event.acceptProposedAction()
+class _NavButton(QPushButton):
+    """A month-nav button that paints its own chevron (◀ / ▶), so the arrow is
+    crisp and theme-colored regardless of the font's glyph coverage."""
 
-    def dragLeaveEvent(self, event) -> None:
-        self._drop_day = None
-        self.update()
-
-    def dropEvent(self, event) -> None:
-        if event.mimeData().hasFormat(SCHEDULE_MIME):
-            day = self._day_at(event.position())
-            self._drop_day = None
-            self.update()
-            if day is not None:
-                self.external_drop.emit(day)
-            event.acceptProposedAction()
-
-
-class _TrayChip(QWidget):
-    """A draggable chip for one unscheduled item in the calendar's tray."""
-
-    activated = Signal(object)            # left-click -> schedule it
-    context = Signal(object, QPoint)      # right-click -> context menu
-
-    def __init__(self, item, parent: QWidget | None = None):
+    def __init__(self, direction: str, parent: QWidget | None = None):
         super().__init__(parent)
-        self.item = item
+        self._dir = direction  # "left" or "right"
+        self.setObjectName("calNav")
+        self.setFixedSize(34, 32)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(28)
-        # Fixed width (from sizeHint) so the row scrolls horizontally instead of
-        # squeezing every chip into an unreadable sliver when there are many.
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.setToolTip(f"{item.title}  ·  {item.home_name}  —  drag onto a day, or click")
-        self._press_pos: QPoint | None = None
-        self._view = None  # set by CalendarView so a drag can stash the item
 
-    def _color(self) -> str:
-        return getattr(theme, KIND_COLOR_KEY.get(self.item.kind, "ACCENT"), theme.ACCENT)
-
-    def sizeHint(self) -> QSize:
-        fm = QFontMetrics(self.font())
-        w = fm.horizontalAdvance(self.item.title or "(untitled)")
-        return QSize(min(220, w + 26), 28)
-
-    def paintEvent(self, _event) -> None:
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)  # background/border from QSS
         with QPainter(self) as p:
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
-            fill = QColor(self._color())
-            if self.item.done:
-                fill.setAlpha(110)
-            r = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(fill)
-            p.drawRoundedRect(r, 6, 6)
-            # color dot + title
-            p.setBrush(QColor(_ink_on(fill.name())))
-            ink = QColor(_ink_on(fill.name()))
-            p.setPen(ink)
-            f = QFont(self.font())
-            f.setStrikeOut(self.item.done)
-            p.setFont(f)
-            fm = QFontMetrics(f)
-            text_rect = r.adjusted(9, 0, -7, 0)
-            label = fm.elidedText(self.item.title or "(untitled)",
-                                  Qt.TextElideMode.ElideRight, int(text_rect.width()))
-            p.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                       label)
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._press_pos = event.position().toPoint()
-            event.accept()
-        elif event.button() == Qt.MouseButton.RightButton:
-            self.context.emit(self.item, event.globalPosition().toPoint())
-            event.accept()
-        else:
-            super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        if not (event.buttons() & Qt.MouseButton.LeftButton) or self._press_pos is None:
-            return
-        if (event.position().toPoint() - self._press_pos).manhattanLength() < \
-                QApplication.startDragDistance():
-            return
-        if self._view is not None:
-            self._view._drag_item = self.item
-        self._press_pos = None
-        drag = QDrag(self)
-        mime = QMimeData()
-        mime.setData(SCHEDULE_MIME, b"1")
-        drag.setMimeData(mime)
-        drag.setPixmap(self.grab())
-        drag.setHotSpot(event.position().toPoint())
-        drag.exec(Qt.DropAction.MoveAction)
-
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._press_pos is not None:
-            self._press_pos = None
-            self.activated.emit(self.item)  # click without a drag -> open picker
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
+            w, h = self.width(), self.height()
+            cx, cy = w / 2.0, h / 2.0
+            dx, dy = 4.0, 6.0
+            pen = QPen(QColor(theme.TEXT), 2.0)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            p.setPen(pen)
+            path = QPainterPath()
+            if self._dir == "left":
+                path.moveTo(cx + dx, cy - dy)
+                path.lineTo(cx - dx, cy)
+                path.lineTo(cx + dx, cy + dy)
+            else:
+                path.moveTo(cx - dx, cy - dy)
+                path.lineTo(cx + dx, cy)
+                path.lineTo(cx - dx, cy + dy)
+            p.drawPath(path)
 
 
 class CalendarView(QWidget):
@@ -2725,38 +2639,34 @@ class CalendarView(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("calendarView")
-        self._drag_item = None  # the tray item currently being dragged onto the grid
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 14)
         root.setSpacing(10)
 
-        # Header: ‹  Month YYYY  ›   [Today]        • Projects • Playlists • Todos
+        # Header:  [Today]        ‹  Month YYYY  ›        • Projects • Playlists • Todos
         header = QHBoxLayout()
         header.setSpacing(8)
-        self.prev_btn = QPushButton("‹")
-        self.next_btn = QPushButton("›")
-        for b in (self.prev_btn, self.next_btn):
-            b.setObjectName("calNav")
-            b.setFixedSize(32, 30)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.prev_btn.clicked.connect(self._prev_month)
-        self.next_btn.clicked.connect(self._next_month)
-
-        self.title_label = QLabel("")
-        self.title_label.setObjectName("calMonthTitle")
-        self.title_label.setMinimumWidth(190)
-
         self.today_btn = QPushButton("Today")
         self.today_btn.setObjectName("calToday")
         self.today_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.today_btn.clicked.connect(self._go_today)
+        header.addWidget(self.today_btn)
+        header.addStretch(1)
 
+        # Centered month nav: ‹  Month YYYY  ›
+        self.prev_btn = _NavButton("left")
+        self.next_btn = _NavButton("right")
+        self.prev_btn.clicked.connect(self._prev_month)
+        self.next_btn.clicked.connect(self._next_month)
+        self.title_label = QLabel("")
+        self.title_label.setObjectName("calMonthTitle")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label.setMinimumWidth(180)
         header.addWidget(self.prev_btn)
         header.addWidget(self.title_label)
         header.addWidget(self.next_btn)
-        header.addSpacing(8)
-        header.addWidget(self.today_btn)
         header.addStretch(1)
+
         for kind, text in ((cal.KIND_PROJECT, "Projects"),
                            (cal.KIND_PLAYLIST, "Playlists"),
                            (cal.KIND_TODO, "Todos")):
@@ -2772,93 +2682,13 @@ class CalendarView(QWidget):
         self.grid.day_range_selected.connect(self.day_range_selected.emit)
         self.grid.item_activated.connect(self.item_activated.emit)
         self.grid.item_context.connect(self.item_context.emit)
-        self.grid.item_rescheduled.connect(self.item_rescheduled.emit)
-        self.grid.external_drop.connect(self._on_external_drop)
         root.addWidget(self.grid, 1)
 
-        self._build_tray(root)
         self._refresh_title()
 
-    def _build_tray(self, root: QVBoxLayout) -> None:
-        self._tray = QWidget()
-        self._tray.setObjectName("calTray")
-        # Guarantee the QSS panel background paints (plain QWidget otherwise
-        # ignores background-color unless it's a styled-background widget).
-        self._tray.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        tv = QVBoxLayout(self._tray)
-        tv.setContentsMargins(12, 8, 12, 10)
-        tv.setSpacing(6)
-        self._tray_label = QLabel("Unscheduled")
-        self._tray_label.setObjectName("calTrayLabel")
-        tv.addWidget(self._tray_label)
-
-        self._tray_scroll = QScrollArea()
-        self._tray_scroll.setObjectName("calTrayScroll")
-        self._tray_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self._tray_scroll.setWidgetResizable(True)
-        self._tray_scroll.setFixedHeight(34)
-        self._tray_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._tray_scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # The scroll area's viewport ignores the global sheet reliably; force it
-        # transparent in code so the #calTray panel shows through.
-        self._tray_scroll.viewport().setStyleSheet("background: transparent;")
-        inner = QWidget()
-        inner.setStyleSheet("background: transparent;")
-        self._tray_row = QHBoxLayout(inner)
-        self._tray_row.setContentsMargins(0, 0, 0, 0)
-        self._tray_row.setSpacing(6)
-        self._tray_row.addStretch(1)
-        self._tray_scroll.setWidget(inner)
-        tv.addWidget(self._tray_scroll)
-
-        root.addWidget(self._tray)
-        self._tray.setVisible(False)
-
-    def set_items(self, items: list, tray_home: str | None = None) -> None:
-        """Grid shows all scheduled items (global); the Unscheduled tray shows
-        only undated items from ``tray_home`` (the open folder) — or all of them
-        if ``tray_home`` is None."""
-        scheduled = [it for it in items if it.scheduled]
-        unscheduled = [it for it in items if not it.scheduled]
-        if tray_home is not None:
-            unscheduled = [it for it in unscheduled
-                           if cal.resolved_path(it.home) == tray_home]
-        self.grid.set_items(scheduled)
-        self._populate_tray(unscheduled)
-
-    # The tray aggregates unscheduled items across every tracked folder, so it
-    # can be large on first use; render a bounded number and label the rest
-    # rather than building hundreds of chips on every rescan.
-    TRAY_LIMIT = 40
-
-    def _populate_tray(self, unscheduled: list) -> None:
-        # Drop existing chips/labels (everything before the trailing stretch).
-        while self._tray_row.count() > 1:
-            taken = self._tray_row.takeAt(0)
-            w = taken.widget()
-            if w is not None:
-                w.deleteLater()
-        for it in unscheduled[:self.TRAY_LIMIT]:
-            chip = _TrayChip(it)
-            chip._view = self
-            chip.activated.connect(self.item_activated.emit)
-            chip.context.connect(self.item_context.emit)
-            self._tray_row.insertWidget(self._tray_row.count() - 1, chip)
-        overflow = len(unscheduled) - self.TRAY_LIMIT
-        if overflow > 0:
-            more = QLabel(f"+{overflow} more")
-            more.setObjectName("calTrayMore")
-            self._tray_row.insertWidget(self._tray_row.count() - 1, more)
-        self._tray_label.setText(f"Unscheduled · {len(unscheduled)}")
-        self._tray.setVisible(bool(unscheduled))
-
-    def _on_external_drop(self, day) -> None:
-        item, self._drag_item = self._drag_item, None
-        if item is not None:
-            iso = day.isoformat()
-            self.item_rescheduled.emit(item, iso, iso)
+    def set_items(self, items: list) -> None:
+        """Render the dated items on the grid (it ignores any without a date)."""
+        self.grid.set_items(items)
 
     def set_month(self, year: int, month: int) -> None:
         self.grid.set_month(year, month)
@@ -3157,14 +2987,19 @@ class LinksDialog(QWidget):
         date_row.addWidget(add_date)
         v.addLayout(date_row)
 
-        # Add a duration ("delta time") — an unanchored length you attach.
+        # Add a duration ("delta time") — pick a count + a whole unit.
+        from PySide6.QtWidgets import QComboBox, QSpinBox
         dur_row = QHBoxLayout()
         dur_row.setSpacing(8)
-        self._delta_input = QLineEdit()
-        self._delta_input.setObjectName("linksSearch")
-        self._delta_input.setPlaceholderText("Duration — e.g. 3 days, 2w, 4h 30m")
-        self._delta_input.returnPressed.connect(self._add_delta)
-        dur_row.addWidget(self._delta_input, 1)
+        self._delta_count = QSpinBox()
+        self._delta_count.setObjectName("linksSpin")
+        self._delta_count.setRange(1, 999)
+        self._delta_count.setValue(1)
+        dur_row.addWidget(self._delta_count)
+        self._delta_unit = QComboBox()
+        self._delta_unit.setObjectName("linksUnit")
+        self._delta_unit.addItems(["days", "weeks", "months"])
+        dur_row.addWidget(self._delta_unit, 1)
         add_dur = QPushButton("Link duration")
         add_dur.setObjectName("linksAddDate")
         add_dur.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3252,14 +3087,11 @@ class LinksDialog(QWidget):
             self._refresh_links()
 
     def _add_delta(self) -> None:
-        ref = links_mod.delta_ref(self._delta_input.text())
-        if ref is None:
-            self._delta_input.setPlaceholderText("Couldn't read that — try '3 days', '2w', '4h'")
-            return
-        if self._store.add(self._ref, ref):
+        ref = links_mod.delta_from_unit(self._delta_count.value(),
+                                        self._delta_unit.currentText())
+        if ref is not None and self._store.add(self._ref, ref):
             self.changed.emit()
             self._refresh_links()
-            self._delta_input.clear()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:

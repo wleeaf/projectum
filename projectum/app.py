@@ -419,12 +419,11 @@ class MainWindow(QMainWindow):
 
     def _build_calendar_view(self) -> QWidget:
         view = CalendarView()
-        view.set_bars_draggable(False)   # link model: bars are click-only this pass
+        view.set_bars_draggable(False)   # link model: bars open the entity (click-only)
         view.day_clicked.connect(self._on_calendar_day_attribute)   # attribute a day
         view.day_range_selected.connect(self._on_calendar_frame_attribute)  # a frame
         view.item_activated.connect(self._on_calendar_item_open)     # open the entity
         view.item_context.connect(self._on_calendar_item_context)
-        view.item_rescheduled.connect(self._on_calendar_link_drop)   # tray drop -> link
         return view
 
     def _build_graph_view(self) -> QWidget:
@@ -3238,11 +3237,9 @@ class MainWindow(QMainWindow):
 
     def _refresh_calendar(self) -> None:
         """Render the calendar from the link graph: every entity linked to a
-        date shows on that day. The open folder's date-less entities fill the
-        Unscheduled tray (drag one onto a day to link it there)."""
+        date (or a date-frame) shows on that day / across that span."""
         self.calendar_view.set_today(date.today())
         entries: list = []
-        linked: set = set()
         for a, b in self._link_store.all_edges():
             if a.is_calendar and not b.is_calendar:
                 temporal, ent = a, b
@@ -3261,14 +3258,7 @@ class MainWindow(QMainWindow):
             title = info.title if info is not None else ent.key
             entries.append(cal.ScheduledItem(ent.home, ent.kind, ent.key, title,
                                              start, end))
-            linked.add(ent)
-        home = cal.resolved_path(str(self.store.root)) if self.store else None
-        if home is not None:
-            for ref, info in self._entity_index.items():
-                if cal.resolved_path(ref.home) == home and ref not in linked:
-                    entries.append(cal.ScheduledItem(ref.home, ref.kind, ref.key,
-                                                     info.title, "", ""))
-        self.calendar_view.set_items(entries, tray_home=home)
+        self.calendar_view.set_items(entries)
 
     def _on_calendar_day_attribute(self, day) -> None:
         """Select a day and attribute it — manage what's linked to that date."""
@@ -3297,14 +3287,6 @@ class MainWindow(QMainWindow):
             rm.triggered.connect(lambda: self._unlink_date(ref, item.start))
             menu.addAction(rm)
         menu.exec(global_pos)
-
-    def _on_calendar_link_drop(self, item, start: str, end: str) -> None:
-        """A tray chip dropped on a day -> link that entity to the date."""
-        if not start:
-            return
-        ref = make_ref(item.kind, item.home, item.key)
-        if self._link_store.add(ref, links_mod.date_ref(start)):
-            self._refresh_calendar()
 
     def _unlink_date(self, ref, iso: str) -> None:
         if self._link_store.remove(ref, links_mod.date_ref(iso)):

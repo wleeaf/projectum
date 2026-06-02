@@ -198,16 +198,11 @@ def test_collect_items_combines_live_and_disk(tmp_path):
 
 # ── widgets ──
 
-def test_calendarview_splits_tray_and_grid(qapp):
+def test_calendarview_renders_dated_items(qapp):
     from projectum.widgets import CalendarView
     v = CalendarView()
-    v.set_items([_si("2026-06-02", kind="project"), _si(""), _si("")])
-    # isHidden() reflects the setVisible intent without showing the top-level.
-    assert not v._tray.isHidden()                    # 2 unscheduled -> tray shown
-    assert "· 2" in v._tray_label.text()
-    assert len(v.grid._items) == 1                   # 1 scheduled -> on the grid
-    v.set_items([_si("2026-06-02")])
-    assert v._tray.isHidden()                        # nothing unscheduled -> hidden
+    v.set_items([_si("2026-06-02", kind="project"), _si("2026-06-05", kind="todo")])
+    assert len(v.grid._items) == 2     # dated items go on the grid (no tray anymore)
     v.deleteLater()
 
 
@@ -256,21 +251,6 @@ def test_compute_preview_move_and_resize(qapp):
     g.deleteLater()
 
 
-def test_tray_drop_schedules_single_day(qapp):
-    from projectum.widgets import CalendarView
-    v = CalendarView()
-    v.set_month(2026, 6)
-    item = _si("", kind="todo", title="U")
-    v.set_items([item])
-    got = []
-    v.item_rescheduled.connect(lambda it, s, e: got.append((it, s, e)))
-    v._drag_item = item
-    v._on_external_drop(date(2026, 6, 9))
-    assert got == [(item, "2026-06-09", "2026-06-09")]
-    assert v._drag_item is None  # cleared after the drop
-    v.deleteLater()
-
-
 def test_bar_drag_move_emits_reschedule(qapp):
     from PySide6.QtGui import QMouseEvent
     from PySide6.QtCore import QEvent, QPointF, Qt
@@ -298,36 +278,6 @@ def test_bar_drag_move_emits_reschedule(qapp):
     g.mouseReleaseEvent(ev(QEvent.Type.MouseButtonRelease, target, Qt.MouseButton.NoButton))
     assert got == [("2026-06-06", "2026-06-06")]
     g.deleteLater()
-
-
-def test_tray_caps_render_with_overflow_label(qapp):
-    from projectum.widgets import CalendarView, _TrayChip
-    v = CalendarView()
-    v.set_items([_si("", kind="todo", title=f"t{i}", key=f"k{i}") for i in range(60)])
-    widgets = [v._tray_row.itemAt(i).widget() for i in range(v._tray_row.count())]
-    chips = [w for w in widgets if isinstance(w, _TrayChip)]
-    mores = [w for w in widgets if w is not None and w.objectName() == "calTrayMore"]
-    assert len(chips) == v.TRAY_LIMIT            # bounded render
-    assert "· 60" in v._tray_label.text()        # full count still shown
-    assert mores and "20 more" in mores[0].text()  # remainder labeled, not silent
-    v.deleteLater()
-
-
-def test_tray_scoped_to_open_folder(qapp):
-    from projectum.widgets import CalendarView, _TrayChip
-    v = CalendarView()
-    a, b = "/repo/A", "/repo/B"
-    items = [
-        cal.ScheduledItem(a, "todo", "a1", "A-unsched"),                  # open, undated
-        cal.ScheduledItem(b, "todo", "b1", "B-unsched"),                  # other, undated
-        cal.ScheduledItem(b, "project", "b2", "B-sched", "2026-06-03"),   # other, dated
-    ]
-    v.set_items(items, tray_home=cal.resolved_path(a))
-    chips = [v._tray_row.itemAt(i).widget() for i in range(v._tray_row.count())]
-    titles = [c.item.title for c in chips if isinstance(c, _TrayChip)]
-    assert titles == ["A-unsched"]      # tray = only the open folder's undated items
-    assert len(v.grid._items) == 1      # grid stays global (shows B's scheduled item)
-    v.deleteLater()
 
 
 def test_calendar_day_attribute_opens_links_for_date(window, qapp, tmp_path):
@@ -362,16 +312,14 @@ def test_calendar_frame_attribute_opens_daterange_dialog(window, qapp, tmp_path)
     window._links_dialog.close()
 
 
-def test_calendar_link_drop_and_unlink(window, qapp, tmp_path):
+def test_calendar_unlink_date_from_day(window, qapp, tmp_path):
     fa = _folder(tmp_path, "work", ["alpha"])
     s = ProjectStore(fa); todo = s.add_todo("Task A"); s.save()
     window.load_folder(fa)
-    window._build_entity_index()
-    chip = cal.ScheduledItem(str(fa), "todo", todo.id, "Task A", "", "")
-    window._on_calendar_link_drop(chip, "2026-06-20", "2026-06-20")   # tray drop -> link
     ref = make_ref("todo", str(fa), todo.id)
+    window._link_store.add(ref, date_ref("2026-06-20"))
     assert window._link_store.has(ref, date_ref("2026-06-20"))
-    window._unlink_date(ref, "2026-06-20")                            # remove from the day
+    window._unlink_date(ref, "2026-06-20")        # right-click "Remove from this day"
     assert not window._link_store.has(ref, date_ref("2026-06-20"))
 
 

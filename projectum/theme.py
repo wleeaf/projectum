@@ -1381,6 +1381,31 @@ QLineEdit#linksSearch:focus {{
     border-color: {ACCENT};
 }}
 
+QSpinBox#linksSpin, QComboBox#linksUnit {{
+    background-color: {SURFACE_2};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    padding: 5px 8px;
+}}
+
+QSpinBox#linksSpin:focus, QComboBox#linksUnit:focus {{
+    border-color: {ACCENT};
+}}
+
+QComboBox#linksUnit::drop-down {{
+    border: none;
+    width: 20px;
+}}
+
+QComboBox#linksUnit QAbstractItemView {{
+    background-color: {SURFACE_2};
+    color: {TEXT};
+    selection-background-color: {ACCENT};
+    selection-color: {BG};
+    border: 1px solid {BORDER};
+}}
+
 QListWidget#linksResults {{
     background-color: {SURFACE_2};
     color: {TEXT};

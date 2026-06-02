@@ -3,8 +3,8 @@
 import json
 
 from projectum.links import (
-    EntityRef, LinkStore, daterange_ref, date_ref, delta_ref, format_delta,
-    index_entities, make_ref, parse_daterange, parse_delta,
+    EntityRef, LinkStore, daterange_ref, date_ref, delta_from_unit, delta_ref,
+    format_delta, index_entities, make_ref, parse_daterange, parse_delta,
 )
 from projectum.store import ProjectStore
 
@@ -37,6 +37,10 @@ def test_delta_parse_format_and_dedup():
     assert d.kind == "delta" and d.is_temporal and not d.is_calendar
     assert format_delta(4320) == "3 days" and format_delta(20160) == "2 weeks"
     assert format_delta(90) == "1h 30m"
+    # the picker's count+unit builder, and month formatting
+    assert delta_from_unit(3, "weeks").key == delta_ref("3 weeks").key
+    assert delta_from_unit(0, "days") is None and delta_from_unit(1, "bogus") is None
+    assert format_delta(43200) == "1 month" and format_delta(129600) == "3 months"
 
 
 def test_linkstore_add_dedup_undirected(tmp_path):
@@ -129,13 +133,12 @@ def test_links_dialog_add_delta_duration(qapp, tmp_path):
     store = LinkStore(tmp_path / "l.json")
     subj = make_ref("project", "/r/A", "alpha")
     dlg = LinksDialog(subj, "Alpha", store, {})
-    dlg._delta_input.setText("3 days")
+    dlg._delta_count.setValue(3)
+    dlg._delta_unit.setCurrentText("days")
     dlg._add_delta()
     neigh = store.neighbors(subj)
     assert len(neigh) == 1 and neigh[0].kind == "delta"
     assert format_delta(int(neigh[0].key)) == "3 days"
-    dlg._delta_input.setText("nonsense"); dlg._add_delta()   # unparseable -> ignored
-    assert len(store.neighbors(subj)) == 1
     dlg.deleteLater()
 
 
