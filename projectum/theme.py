@@ -601,6 +601,12 @@ QPushButton#primary:hover {{
     border-color: {ACCENT_HOVER};
 }}
 
+QPushButton#primary:disabled {{
+    background-color: {SURFACE_2};
+    color: {TEXT_MUTED};
+    border-color: {BORDER};
+}}
+
 QPushButton#ghost {{
     background-color: transparent;
     border: 1px dashed {BORDER};
@@ -1022,6 +1028,17 @@ QLabel#settingsTitle {{
     color: {TEXT};
     font-size: {size + 4}px;
     font-weight: 600;
+}}
+
+QLabel#settingsField {{
+    color: {TEXT};
+    font-size: {size}px;
+    font-weight: 600;
+}}
+
+QLabel#settingsFieldSub, QLabel#settingsHint {{
+    color: {TEXT_MUTED};
+    font-size: {max(size - 2, 10)}px;
 }}
 
 QPushButton#iconButton {{

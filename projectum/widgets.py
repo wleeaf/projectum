@@ -914,6 +914,10 @@ class SettingsDialog(QWidget):
     settings_changed = Signal(dict)
     closed = Signal()
 
+    # Font sizes offered in the dropdown (clamped to the allowed range; the
+    # current value is inserted if it isn't one of these).
+    SIZE_PRESETS = [9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28]
+
     def __init__(
         self,
         current_theme: str,
@@ -926,11 +930,31 @@ class SettingsDialog(QWidget):
             Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint,
         )
         self.setObjectName("settingsDialog")
-        self.setMinimumWidth(420)
-        self._suppress = True
-        self._last_emitted: dict | None = None
+        self.setMinimumWidth(440)
         self._build(current_theme, current_font_family, current_font_size)
-        self._suppress = False
+        # Baseline for the dirty check, taken from the actual control values so
+        # Qt's normalization (e.g. of a font family) doesn't read as a change.
+        self._applied = self._current_selection()
+        self.theme_combo.currentIndexChanged.connect(self._refresh_apply_enabled)
+        self.font_combo.currentFontChanged.connect(self._refresh_apply_enabled)
+        self.size_combo.currentIndexChanged.connect(self._refresh_apply_enabled)
+        self._refresh_apply_enabled()
+
+    @staticmethod
+    def _theme_swatch(bg: str, accent: str, border: str):
+        """A small bg + accent-dot icon previewing a theme in the dropdown."""
+        from PySide6.QtGui import QIcon, QPixmap
+        pm = QPixmap(30, 18)
+        pm.fill(Qt.GlobalColor.transparent)
+        with QPainter(pm) as p:
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setPen(QPen(QColor(border), 1))
+            p.setBrush(QColor(bg))
+            p.drawRoundedRect(QRectF(0.5, 0.5, 29, 17), 4, 4)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(accent))
+            p.drawEllipse(QPointF(21, 9), 4.5, 4.5)
+        return QIcon(pm)
 
     def _build(
         self,
@@ -938,15 +962,15 @@ class SettingsDialog(QWidget):
         current_font_family: str,
         current_font_size: int,
     ) -> None:
-        from PySide6.QtWidgets import QComboBox, QFrame, QSpinBox
-        from PySide6.QtGui import QFontDatabase
+        from PySide6.QtWidgets import QComboBox, QFontComboBox, QFrame
+        from PySide6.QtGui import QFont
         from .theme import (
-            DEFAULT_FONT_FAMILY, FONT_SIZE_MAX, FONT_SIZE_MIN, THEME_LABELS,
+            DEFAULT_FONT_FAMILY, FONT_SIZE_MAX, FONT_SIZE_MIN, THEMES, THEME_LABELS,
         )
 
         v = QVBoxLayout(self)
         v.setContentsMargins(28, 22, 28, 22)
-        v.setSpacing(18)
+        v.setSpacing(16)
 
         # Title row
         header = QHBoxLayout()
@@ -967,103 +991,99 @@ class SettingsDialog(QWidget):
         divider.setFrameShape(QFrame.Shape.HLine)
         v.addWidget(divider)
 
-        # Theme
-        v.addLayout(self._field_row(
-            "Theme",
-            "Color palette used across the app.",
-        ))
+        # ── Theme — dropdown with a per-theme color swatch ──
+        v.addLayout(self._field_row("Theme", "Color palette used across the app."))
         self.theme_combo = QComboBox()
         self.theme_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_combo.setIconSize(QSize(30, 18))
         self._theme_keys: list[str] = []
         for key, label in THEME_LABELS:
-            self.theme_combo.addItem(label)
+            t = THEMES.get(key, {})
+            icon = self._theme_swatch(
+                t.get("BG", "#000"), t.get("ACCENT", "#888"), t.get("BORDER", "#444")
+            )
+            self.theme_combo.addItem(icon, label)
             self._theme_keys.append(key)
         if current_theme in self._theme_keys:
             self.theme_combo.setCurrentIndex(self._theme_keys.index(current_theme))
-        self.theme_combo.currentIndexChanged.connect(self._emit_change)
         v.addWidget(self.theme_combo)
 
-        # Font family — populated from QFontDatabase so any installed family works.
-        v.addLayout(self._field_row(
-            "Font family",
-            "Choose any installed font. Type to filter.",
-        ))
-        self.font_combo = QComboBox()
-        self.font_combo.setEditable(True)
-        self.font_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        # ── Font family — a select-only dropdown that previews each family ──
+        v.addLayout(self._field_row("Font family", "Pick from your installed fonts."))
+        self.font_combo = QFontComboBox()
+        self.font_combo.setEditable(False)
         self.font_combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        families = sorted(set(QFontDatabase.families()), key=str.casefold)
-        self.font_combo.addItems(families)
-        # Prefer the user's previous choice; otherwise the default if present.
-        for candidate in (current_font_family, DEFAULT_FONT_FAMILY):
-            idx = self.font_combo.findText(candidate, Qt.MatchFlag.MatchFixedString)
-            if idx >= 0:
-                self.font_combo.setCurrentIndex(idx)
-                break
-        self.font_combo.currentIndexChanged.connect(self._emit_change)
-        # editingFinished fires when user types a new family name and tabs/Enters.
-        self.font_combo.lineEdit().editingFinished.connect(self._emit_change)
+        self.font_combo.setMaxVisibleItems(14)
+        chosen = current_font_family or DEFAULT_FONT_FAMILY
+        self.font_combo.setCurrentFont(QFont(chosen))
         v.addWidget(self.font_combo)
 
-        # Font size — free-form spin box.
+        # ── Font size — a dropdown of preset pixel sizes ──
         v.addLayout(self._field_row(
-            "Font size",
-            f"Base text size in pixels ({FONT_SIZE_MIN}–{FONT_SIZE_MAX}).",
+            "Font size", f"Base text size in pixels ({FONT_SIZE_MIN}–{FONT_SIZE_MAX})."
         ))
-        self.size_spin = QSpinBox()
-        self.size_spin.setRange(FONT_SIZE_MIN, FONT_SIZE_MAX)
-        self.size_spin.setSuffix(" px")
-        self.size_spin.setValue(int(current_font_size))
-        self.size_spin.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.size_spin.valueChanged.connect(self._emit_change)
-        v.addWidget(self.size_spin)
+        self.size_combo = QComboBox()
+        self.size_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        cur = max(FONT_SIZE_MIN, min(FONT_SIZE_MAX, int(current_font_size)))
+        sizes = sorted(
+            {s for s in self.SIZE_PRESETS if FONT_SIZE_MIN <= s <= FONT_SIZE_MAX} | {cur}
+        )
+        for s in sizes:
+            self.size_combo.addItem(f"{s} px", s)
+        self.size_combo.setCurrentIndex(sizes.index(cur))
+        v.addWidget(self.size_combo)
 
         v.addStretch(1)
 
-        hint = QLabel("Changes apply immediately and persist across launches.")
-        hint.setStyleSheet(
-            f"color: {theme.TEXT_MUTED}; font-size: 11px; background: transparent;"
-        )
+        hint = QLabel("Choose your settings, then click Apply.")
+        hint.setObjectName("settingsHint")
         v.addWidget(hint)
+
+        # ── Footer: Apply (enabled only when something changed) + Close ──
+        footer = QHBoxLayout()
+        footer.setSpacing(8)
+        footer.addStretch(1)
+        self.close_action_btn = QPushButton("Close")
+        self.close_action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_action_btn.clicked.connect(self._on_close)
+        footer.addWidget(self.close_action_btn)
+        self.apply_btn = QPushButton("Apply")
+        self.apply_btn.setObjectName("primary")
+        self.apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.apply_btn.clicked.connect(self._on_apply)
+        footer.addWidget(self.apply_btn)
+        v.addLayout(footer)
 
     def _field_row(self, title: str, subtitle: str) -> QVBoxLayout:
         wrap = QVBoxLayout()
         wrap.setSpacing(2)
         t = QLabel(title)
-        t.setStyleSheet(
-            f"color: {theme.TEXT}; font-size: 13px; font-weight: 600; "
-            f"background: transparent;"
-        )
+        t.setObjectName("settingsField")
         s = QLabel(subtitle)
-        s.setStyleSheet(
-            f"color: {theme.TEXT_MUTED}; font-size: 11px; background: transparent;"
-        )
+        s.setObjectName("settingsFieldSub")
         wrap.addWidget(t)
         wrap.addWidget(s)
         return wrap
 
-    def _emit_change(self, *_args) -> None:
-        if self._suppress:
-            return
-        theme_idx = self.theme_combo.currentIndex()
+    def _current_selection(self) -> dict:
+        idx = self.theme_combo.currentIndex()
         theme_key = (
-            self._theme_keys[theme_idx]
-            if 0 <= theme_idx < len(self._theme_keys)
-            else "dark"
+            self._theme_keys[idx] if 0 <= idx < len(self._theme_keys) else "dark"
         )
-        family = self.font_combo.currentText().strip() or "Inter"
-        size = int(self.size_spin.value())
-        payload = {
+        return {
             "theme": theme_key,
-            "font_family": family,
-            "font_size": size,
+            "font_family": self.font_combo.currentFont().family(),
+            "font_size": int(self.size_combo.currentData()),
         }
-        # font_combo wires both currentIndexChanged and editingFinished, so a
-        # single pick fires twice — skip if nothing actually changed.
-        if payload == self._last_emitted:
-            return
-        self._last_emitted = payload
-        self.settings_changed.emit(payload)
+
+    def _refresh_apply_enabled(self, *_args) -> None:
+        self.apply_btn.setEnabled(self._current_selection() != self._applied)
+
+    def _on_apply(self) -> None:
+        sel = self._current_selection()
+        self._applied = sel
+        self._refresh_apply_enabled()  # nothing pending now
+        self.settings_changed.emit(dict(sel))
 
     def _on_close(self) -> None:
         fade_window_close(self, duration=120, on_done=self._finish_close)
