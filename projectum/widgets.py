@@ -573,7 +573,9 @@ class TagEditor(QLineEdit):
 
 
 class _SizeSignals(QObject):
-    done = Signal(str, int)  # project name, bytes
+    # qint64 (64-bit): a plain `int` is a C++ 32-bit int, so folders over ~2.1 GB
+    # wrap to a negative byte count.
+    done = Signal(str, "qint64")  # project name, bytes
 
 
 class SizeRunnable(QRunnable):

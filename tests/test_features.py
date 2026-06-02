@@ -7,7 +7,7 @@ import subprocess
 import pytest
 
 from projectum.app import load_state
-from projectum.widgets import GitRunnable
+from projectum.widgets import GitRunnable, _SizeSignals
 
 
 def make_folder(base, name):
@@ -125,3 +125,15 @@ def test_git_runnable_non_repo_returns_none(window, tmp_path, qapp):
     gr.signals.done.connect(lambda n, info: captured.update(seen=True, info=info))
     gr.run()
     assert captured["seen"] and captured["info"] is None
+
+
+def test_size_signal_handles_folders_over_2gb(qapp):
+    # A folder larger than a 32-bit int (~2.1 GB) must not wrap to a negative
+    # byte count: the size is carried as qint64, not a C++ int.
+    big = 3_306_270_403  # ~3.3 GB
+    got = []
+    sig = _SizeSignals()
+    sig.done.connect(lambda name, b: got.append(b))
+    sig.done.emit("brante", big)
+    qapp.processEvents()
+    assert got == [big]
