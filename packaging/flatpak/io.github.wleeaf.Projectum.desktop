@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Projectum
+GenericName=Project & Playlist Tracker
+Comment=Keyboard-first tracker for the projects, playlists, tasks and notes in a folder
+Exec=projectum
+Icon=io.github.wleeaf.Projectum
+Categories=Utility;Development;
+Terminal=false
+StartupWMClass=Projectum
+Keywords=projects;playlists;notes;todo;tracker;

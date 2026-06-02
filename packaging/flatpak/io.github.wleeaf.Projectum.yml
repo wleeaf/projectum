@@ -1,0 +1,60 @@
+# Flatpak manifest for Projectum.
+#
+# DRAFT — starting point for a Flathub submission, not yet submission-ready:
+#   1. yt-dlp + its dependencies must be VENDORED for an offline build. Generate
+#      a module with flatpak-pip-generator and replace the `yt-dlp` module below:
+#        python flatpak-pip-generator --runtime org.kde.Sdk//6.8 yt-dlp
+#      (PySide6 itself is provided by the io.qt.PySide.BaseApp, so don't vendor it.)
+#   2. Build & test locally:
+#        flatpak install flathub org.kde.Sdk//6.8 org.kde.Platform//6.8 io.qt.PySide.BaseApp//6.8
+#        flatpak-builder --user --install --force-clean build-dir io.github.wleeaf.Projectum.yml
+#   3. Validate metadata: appstreamcli validate ...metainfo.xml ; desktop-file-validate ...desktop
+#   4. Submit to github.com/flathub/flathub (new-pr branch) and iterate with reviewers.
+id: io.github.wleeaf.Projectum
+runtime: org.kde.Platform
+runtime-version: "6.8"
+sdk: org.kde.Sdk
+base: io.qt.PySide.BaseApp
+base-version: "6.8"
+command: projectum
+
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --share=network          # yt-dlp fetches playlist metadata
+  - --filesystem=home        # open and track project folders
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - "*.a"
+  - "*.la"
+
+modules:
+  # Replace with the flatpak-pip-generator output (see header note 1).
+  - name: yt-dlp
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=${FLATPAK_DEST} --no-deps --no-build-isolation yt-dlp
+    sources:
+      - type: file
+        # placeholder — pin the real wheel URL + sha256, or vendor via generator
+        url: https://files.pythonhosted.org/packages/source/y/yt-dlp/yt_dlp.tar.gz
+        sha256: REPLACE_WITH_SHA256
+
+  - name: projectum
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=${FLATPAK_DEST} --no-deps --no-build-isolation .
+      - install -Dm644 projectum/assets/icon.svg
+        ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg
+      - install -Dm644 packaging/flatpak/${FLATPAK_ID}.desktop
+        ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 packaging/flatpak/${FLATPAK_ID}.metainfo.xml
+        ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..

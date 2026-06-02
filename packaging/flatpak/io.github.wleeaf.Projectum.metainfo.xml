@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.wleeaf.Projectum</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Projectum</name>
+  <summary>Track the projects, playlists, tasks and notes in a folder</summary>
+
+  <description>
+    <p>
+      Projectum is a keyboard-first desktop tracker. Point it at a folder and
+      every subfolder becomes a project you can mark done and tested, tag with
+      colors, annotate with live-rendered Markdown, pin, and reorder.
+    </p>
+    <p>
+      The same window tracks YouTube playlists (titles, durations, watched
+      state and per-video notes), keeps a to-do list, and a folder-wide
+      scratchpad. A command palette searches across all of it.
+    </p>
+    <p>
+      Everything for a folder is stored in a single, human-readable JSON file
+      inside it — no servers, no accounts, no telemetry. Features include:
+    </p>
+    <ul>
+      <li>19 readable, distinctive themes plus any installed font</li>
+      <li>Per-project git status, size, and quick-actions (open folder / terminal / editor)</li>
+      <li>Smooth scrolling and animated, frameless UI</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.wleeaf.Projectum.desktop</launchable>
+
+  <url type="homepage">https://github.com/wleeaf/projectum</url>
+  <url type="bugtracker">https://github.com/wleeaf/projectum/issues</url>
+  <url type="vcs-browser">https://github.com/wleeaf/projectum</url>
+
+  <developer id="io.github.wleeaf">
+    <name>wleeaf</name>
+  </developer>
+
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/wleeaf/projectum/main/docs/screenshots/01-projects.png</image>
+      <caption>Projects view with the detail panel</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/wleeaf/projectum/main/docs/screenshots/02-playlists.png</image>
+      <caption>YouTube playlists with per-video tracking</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/wleeaf/projectum/main/docs/screenshots/04-command-palette.png</image>
+      <caption>Command palette over everything</caption>
+    </screenshot>
+  </screenshots>
+
+  <content_rating type="oars-1.1"/>
+
+  <categories>
+    <category>Utility</category>
+    <category>Development</category>
+  </categories>
+
+  <keywords>
+    <keyword>projects</keyword>
+    <keyword>playlists</keyword>
+    <keyword>notes</keyword>
+    <keyword>todo</keyword>
+    <keyword>tracker</keyword>
+  </keywords>
+
+  <releases>
+    <release version="1.6.0" date="2026-06-02"/>
+  </releases>
+</component>

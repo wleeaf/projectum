@@ -1,0 +1,27 @@
+# Maintainer: wleeaf <https://github.com/wleeaf>
+pkgname=projectum
+pkgver=1.6.0
+pkgrel=1
+pkgdesc="Keyboard-first desktop tracker for the projects, playlists, tasks and notes in a folder"
+arch=('any')
+url="https://github.com/wleeaf/projectum"
+license=('MIT')
+depends=('python' 'python-pyside6' 'yt-dlp')
+makedepends=('python-build' 'python-installer' 'python-wheel' 'python-setuptools')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')  # replace with the real checksum per release: updpkgsums
+
+build() {
+    cd "$pkgname-$pkgver"
+    python -m build --wheel --no-isolation
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    python -m installer --destdir="$pkgdir" dist/*.whl
+    install -Dm644 packaging/appimage/projectum.desktop \
+        "$pkgdir/usr/share/applications/projectum.desktop"
+    install -Dm644 projectum/assets/icon.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/projectum.svg"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
