@@ -60,6 +60,9 @@ Projectum remembers the last folder you opened, so later launches go straight ba
 - **YouTube playlists with per‑video tracking.** Paste a URL, `yt-dlp` fetches the metadata, tick videos off as you watch, and keep notes per video. *Refresh* later pulls in new uploads while preserving your progress; videos removed upstream are kept and flagged.
 - **Live WYSIWYG Markdown** in every notes pane. Headings, bold/italic, inline and fenced code, lists, blockquotes, strikethrough, and links render as you type — the syntax markers stay dimmed but present, so it's still plain editable Markdown with no separate preview.
 - **A folder-scoped Todo list** — quick tasks per folder: add, check off, double‑click to edit inline, delete, and drag to reorder, with a done/total counter.
+- **Project quick-actions** — right‑click a project to open its folder, copy its path, open a terminal there, or open it in your editor (VS Code / Cursor / Zed / Sublime when on `PATH`).
+- **Git-aware** — the detail panel shows a project's current branch and whether its working tree is dirty, read off the UI thread.
+- **Recent-folders menu** — a **Recent ▾** button to jump back between the folders you track.
 - **Tags with custom colors** (right‑click any chip), an automatic cleanup that drops unused colors, and a sidebar tag filter.
 - **Done + Tested toggles** per project — a green check and a blue one; tested projects render in blue in the sidebar.
 - **Pin & drag‑to‑reorder** projects and playlists; pinned items float to the top.
@@ -78,7 +81,7 @@ Projectum remembers the last folder you opened, so later launches go straight ba
 
 ## Usage
 
-**Projects** — Each subfolder of the chosen root is a row. Toggle **done** (green) or **tested** (blue); tested projects show their name in blue. Tags are inline chips — right‑click to recolor, click the **×** to remove, and filter by tag from the **Tag** chip at the top of the sidebar. Drag rows to reorder, or right‑click → **Pin to top**. The notes editor renders Markdown live, in place.
+**Projects** — Each subfolder of the chosen root is a row. Toggle **done** (green) or **tested** (blue); tested projects show their name in blue. Tags are inline chips — right‑click to recolor, click the **×** to remove, and filter by tag from the **Tag** chip at the top of the sidebar. Drag rows to reorder, or right‑click for **Pin to top** and quick actions (**Open folder / Copy path / Open in terminal / Open in editor**). The detail panel shows the folder's size, last‑modified time, and **git branch + dirty state**; the notes editor renders Markdown live, in place.
 
 **Playlists** — **+ Add YouTube playlist** prompts for a URL; `yt-dlp` fetches the title, uploader, and every video. **Refresh** re‑syncs while keeping your watched/notes state. Tag, pin, reorder, and write per‑playlist notes; each video has its own notes pane below the list.
 
@@ -95,8 +98,11 @@ Projectum remembers the last folder you opened, so later launches go straight ba
 | Shortcut          | Action                                          |
 |-------------------|-------------------------------------------------|
 | `Ctrl+K`          | Open the command palette                        |
+| `Ctrl+1` … `Ctrl+4` | Switch tab (Projects / Playlists / Todo / Notes) |
 | `Ctrl+O`          | Open a folder                                   |
 | `Ctrl+F`          | Focus the sidebar search                        |
+| `Ctrl+D`          | Toggle the selected project's *done* state      |
+| `Ctrl+T`          | Jump to Todo and start a new task               |
 | `Ctrl+N`          | Focus the project notes editor                  |
 | `Ctrl+R`          | Refresh the current folder                      |
 | `↵` / `Shift+↵`   | Next / previous match in Notes search           |
@@ -137,7 +143,14 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The codebase is deliberately dependency‑light: `PySide6` for the UI, `yt-dlp` for playlist metadata, and the standard library for everything else. Continuous integration runs `ruff`, byte‑compiles every module, and boots `MainWindow` on a headless (`offscreen`) display across Python 3.10–3.12 on Linux, macOS, and Windows.
+The codebase is deliberately dependency‑light: `PySide6` for the UI, `yt-dlp` for playlist metadata, and the standard library for everything else. Continuous integration runs `ruff`, byte‑compiles every module, runs the headless `pytest` suite, and boots `MainWindow` on an `offscreen` display across Python 3.10–3.12 on Linux, macOS, and Windows.
+
+Run the tests locally with:
+
+```bash
+pip install pytest
+QT_QPA_PLATFORM=offscreen pytest -q
+```
 
 ### Building the AppImage locally
 

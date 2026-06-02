@@ -3,6 +3,22 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] — 2026-05-30
+
+### Added
+
+- **Project quick-actions** — right-click a project for **Open folder**, **Copy path**, **Open in terminal**, and **Open in your editor** (VS Code, Cursor, Zed, or Sublime, when one is on `PATH`).
+- **Git status** in the project detail panel — current branch plus a dirty/clean indicator, read off the UI thread in a single `git status` call.
+- **Recent-folders menu** — a **Recent ▾** button in the top bar to jump between tracked folders (most-recent-first, deduplicated, with missing paths filtered out).
+- **Keyboard shortcuts** — `Ctrl+1`–`Ctrl+4` switch tabs, `Ctrl+D` toggles the selected project's *done* state, `Ctrl+T` jumps to the Todo tab and focuses a new task.
+- **Test suite** — a headless `pytest` suite (data-layer round-trips, the 1.1.0/1.2.0 regressions, the todo lifecycle, and smooth-scroll behavior) now runs in CI across Linux/macOS/Windows × Python 3.10–3.12.
+
+### Changed
+
+- **Mouse-wheel scrolling** now ticks at the display's actual refresh rate (read from the shown window, with a `PreciseTimer`) instead of a fixed ~60 fps, so the wheel glide is as smooth as dragging the scrollbar on high-refresh panels. Set `PROJECTUM_SCROLL_FPS` to override if your setup misreports its refresh rate.
+
+[1.3.0]: https://github.com/ts-solidarity/projectum/releases/tag/v1.3.0
+
 ## [1.2.0] — 2026-05-30
 
 ### Added
