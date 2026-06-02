@@ -3,6 +3,15 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] — 2026-06-02
+
+### Added
+
+- **In-app update check.** Shortly after launch, Projectum makes a single read-only call to the GitHub Releases API; if a newer version is out, a quiet banner ("Projectum vX.Y.Z is available" + Download) appears. Off the UI thread, fail-silent when offline, **no telemetry**, opt-out via a new **Check for updates on launch** toggle in Settings, and a dismissed version won't nag again.
+- **`pip install projectum`** — the app is now published to PyPI (auto-published from each release).
+
+[1.7.0]: https://github.com/wleeaf/projectum/releases/tag/v1.7.0
+
 ## [1.6.0] — 2026-06-02
 
 ### Added

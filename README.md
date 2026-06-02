@@ -49,6 +49,13 @@ Grab `Projectum-windows-x64.exe` or `Projectum-macos.dmg` from the [latest relea
 >
 > If in doubt, running from source (below) avoids the warnings entirely.
 
+### pip (any platform with Python ≥ 3.10)
+
+```bash
+pip install projectum
+projectum
+```
+
 ### From source (Linux · macOS · Windows)
 
 Requires **Python ≥ 3.10**.
@@ -79,6 +86,7 @@ Projectum remembers the last folder you opened, so later launches go straight ba
 - **Command palette (`Ctrl+K`)** over projects, playlists, videos, tags, and the scratchpad, with prefix‑match ranking and type‑ahead.
 - **19 built‑in themes** spanning the spectrum — distinctive ones like **Midnight** (true‑black OLED), **Synthwave** (neon), **Ember** (warm orange‑red), **Graphite** (colorless mono) and **Paper** (crisp white) alongside Catppuccin Mocha / Latte / Macchiato, Nord, Dracula, Tokyo Night, Rosé Pine, One Dark, GitHub Dark, Everforest, Gruvbox Dark / Light, and Solarized Dark / Light. Every theme is held to a WCAG contrast bar so text stays readable, previewed by a color swatch in the picker, and crossfaded when you switch. Plus **any installed font** at any size.
 - **Frameless, animated UI** with smooth wheel scrolling, custom title bar, edge‑resize, and flicker‑free crossfade transitions.
+- **Update notifications** — a quiet banner when a newer release is out (one read-only GitHub check on launch, opt-out in Settings — no telemetry).
 - **Resilient state.** Writes are atomic; a folder that disappears (rename, `git checkout`) has its metadata preserved and restored when it returns.
 
 ## Screenshots
@@ -101,7 +109,7 @@ Projectum remembers the last folder you opened, so later launches go straight ba
 
 **Command palette** — `Ctrl+K` from anywhere. Type to filter projects, playlists, videos, tags, and the scratchpad; `↑`/`↓` to navigate, `↵` to open, `Esc` to dismiss.
 
-**Settings** — The gear icon opens dropdowns for theme (each previewed with a color swatch), font family (select-only, every family shown in its own font), and font size (preset pixels). Changes are staged and applied only when you click **Apply**, then persist across launches.
+**Settings** — The gear icon opens dropdowns for theme (each previewed with a color swatch), font family (select-only, every family shown in its own font), and font size (preset pixels), plus a **Check for updates on launch** toggle. Changes are staged and applied only when you click **Apply**, then persist across launches.
 
 ## Keyboard shortcuts
 
