@@ -8,7 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -26,6 +26,7 @@ from PySide6.QtCore import QUrl
 from functools import partial
 
 from .store import Playlist, Project, ProjectStore, Video
+from . import calendar as cal
 from . import theme
 from .theme import tag_color
 from .anims import (
@@ -34,10 +35,11 @@ from .anims import (
     SmoothScrollFilter,
 )
 from .widgets import (
-    BrandMark, ColorPickerPopup, CommandPalette, CompletionToggle, FlowLayout,
-    FrameWrapper, GitRunnable, IconButton, MarkdownHighlighter, PlaylistRow,
-    ProjectRow, SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar,
-    TodoRow, UpdateBanner, VideoRow, WindowControlButton,
+    BrandMark, CalendarScanRunnable, CalendarView, ColorPickerPopup,
+    CommandPalette, CompletionToggle, FlowLayout, FrameWrapper, GitRunnable,
+    IconButton, MarkdownHighlighter, PlaylistRow, ProjectRow, SettingsDialog,
+    SizeRunnable, TagChip, TagEditor, TitleBar, TodoRow, UpdateBanner,
+    VideoRow, WindowControlButton,
 )
 from .youtube import PlaylistFetchRunnable
 from .update import UpdateCheckRunnable
@@ -79,6 +81,11 @@ class FocusManager(QObject):
 
 
 ICON_PATH = Path(__file__).parent / "assets" / "icon.svg"
+
+# How many recently-opened folders to persist. The global Calendar scans all of
+# them, so we keep a long history; the Recent ▾ menu shows only the newest few.
+RECENT_FOLDERS_CAP = 60
+RECENT_MENU_LIMIT = 12
 
 
 def state_dir() -> Path:
@@ -131,6 +138,7 @@ class MainWindow(QMainWindow):
         self._size_pending_for: str | None = None
         self._row_items: dict[str, QListWidgetItem] = {}
         self._tag_editor: TagEditor | None = None
+        self._calendar_items: list = []
 
         # Playlists state
         self.current_tab: str = "projects"
@@ -383,14 +391,22 @@ class MainWindow(QMainWindow):
         self.projects_view = self._build_projects_view()
         self.playlists_view = self._build_playlists_view()
         self.todo_view = self._build_todo_view()
+        self.calendar_view = self._build_calendar_view()
         self.notes_view = self._build_notes_view()
         self.content_stack.addWidget(self.projects_view)
         self.content_stack.addWidget(self.playlists_view)
         self.content_stack.addWidget(self.todo_view)
+        self.content_stack.addWidget(self.calendar_view)
         self.content_stack.addWidget(self.notes_view)
         v.addWidget(self.content_stack, 1)
 
         return container
+
+    def _build_calendar_view(self) -> QWidget:
+        view = CalendarView()
+        view.item_activated.connect(self._on_calendar_item_activated)
+        view.day_clicked.connect(self._on_calendar_day_clicked)
+        return view
 
     def _build_tab_bar(self) -> QWidget:
         bar = QWidget()
@@ -407,6 +423,7 @@ class MainWindow(QMainWindow):
             ("projects", "Projects"),
             ("playlists", "Playlists"),
             ("todos", "Todo"),
+            ("calendar", "Calendar"),
             ("notes", "Notes"),
         ]:
             b = QPushButton(label)
@@ -431,11 +448,14 @@ class MainWindow(QMainWindow):
             "projects": self.projects_view,
             "playlists": self.playlists_view,
             "todos": self.todo_view,
+            "calendar": self.calendar_view,
             "notes": self.notes_view,
         }.get(key, self.projects_view)
         cross_fade_stack(
             self.content_stack, self.content_stack.indexOf(target), duration=160,
         )
+        if key == "calendar":
+            self._rescan_calendar()
 
     def _build_projects_view(self) -> QWidget:
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -1230,9 +1250,9 @@ class MainWindow(QMainWindow):
                   activated=lambda: self.notes_edit.setFocus()
                   if self.current_project else None)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_command_palette)
-        # Tab switching: Ctrl+1..4.
+        # Tab switching: Ctrl+1..5.
         for i, key in enumerate(
-            ("projects", "playlists", "todos", "notes"), start=1
+            ("projects", "playlists", "todos", "calendar", "notes"), start=1
         ):
             QShortcut(QKeySequence(f"Ctrl+{i}"), self,
                       activated=partial(self._goto_tab, key))
@@ -1284,7 +1304,7 @@ class MainWindow(QMainWindow):
             act.triggered.connect(partial(self.load_folder, Path(r)))
             menu.addAction(act)
             shown += 1
-            if shown >= 12:
+            if shown >= RECENT_MENU_LIMIT:
                 break
         if shown == 0:
             empty = QAction("No recent folders", menu)
@@ -1335,7 +1355,10 @@ class MainWindow(QMainWindow):
         p_str = str(path)
         recents = [r for r in recents if isinstance(r, str) and r != p_str]
         recents.insert(0, p_str)
-        st["recent_folders"] = recents[:12]
+        # The global Calendar scans this whole list, so keep a generous history
+        # (the Recent ▾ menu still shows only the top RECENT_MENU_LIMIT). This
+        # avoids silently dropping a folder's scheduled items off the calendar.
+        st["recent_folders"] = recents[:RECENT_FOLDERS_CAP]
         save_state(st)
 
         if self.stack.currentWidget() is not self.main_view:
@@ -3111,6 +3134,37 @@ class MainWindow(QMainWindow):
             st = load_state()
             st["update_dismissed"] = self._update_version
             save_state(st)
+
+    # ─── Calendar ────────────────────────────────────────────────
+
+    def _rescan_calendar(self) -> None:
+        """Refresh the global calendar. The open folder is read on the UI
+        thread (in :meth:`_on_calendar_scanned`); every other tracked folder is
+        scanned off-thread so a large history never stalls the UI."""
+        self.calendar_view.set_today(date.today())
+        folders = load_state().get("recent_folders")
+        if not isinstance(folders, list):
+            folders = []
+        exclude = cal.resolved_path(str(self.store.root)) if self.store else None
+        runnable = CalendarScanRunnable(folders, exclude)
+        runnable.signals.done.connect(self._on_calendar_scanned)
+        self._size_pool.start(runnable)
+
+    def _on_calendar_scanned(self, disk_items: list, skipped: list) -> None:
+        # Prepend the open folder's items, read fresh on the UI thread (its
+        # in-memory objects are never touched off-thread). scan_disk excluded
+        # the open folder, so there's no double-count.
+        live_items = cal.items_from_store(self.store) if self.store else []
+        self._calendar_items = live_items + list(disk_items)
+        self.calendar_view.set_items(self._calendar_items)
+
+    def _on_calendar_item_activated(self, item) -> None:
+        # Schedule editing (range picker / unschedule) is wired in the
+        # drag-and-drop pass; display-only for now.
+        pass
+
+    def _on_calendar_day_clicked(self, day) -> None:
+        pass
 
     def _apply_settings(self, settings: dict) -> None:
         new_theme = settings.get("theme", theme.DEFAULT_THEME)

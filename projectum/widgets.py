@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -10,8 +11,8 @@ from PySide6.QtCore import (
     QRunnable, QSize,
 )
 from PySide6.QtGui import (
-    QPainter, QColor, QBrush, QPen, QFont, QPainterPath, QMouseEvent,
-    QSyntaxHighlighter, QTextCharFormat,
+    QPainter, QColor, QBrush, QPen, QFont, QFontMetrics, QPainterPath,
+    QMouseEvent, QSyntaxHighlighter, QTextCharFormat,
 )
 from PySide6.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QLabel,
@@ -19,8 +20,17 @@ from PySide6.QtWidgets import (
 )
 
 from .anims import fade_window_close
+from . import calendar as cal
 from . import theme
 from .theme import TAG_PALETTE, tag_color
+
+
+# Calendar bar color per item kind (resolved against the active theme at paint).
+KIND_COLOR_KEY = {
+    cal.KIND_PROJECT: "ACCENT",
+    cal.KIND_PLAYLIST: "ACCENT_2",
+    cal.KIND_TODO: "INFO",
+}
 
 
 # Folders we skip when walking a project tree to compute size.
@@ -2106,3 +2116,415 @@ class UpdateBanner(QWidget):
     def show_update(self, version: str) -> None:
         self.label.setText(f"Projectum {version} is available.")
         self.setVisible(True)
+
+
+# ──────────────────────────── Calendar ──────────────────────────────────────
+
+WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]  # WEEK_START=0
+# Fixed English month names — the rest of the UI is English, so we don't want
+# strftime("%B") pulling localized names that clash with the weekday headers.
+MONTH_NAMES = ["", "January", "February", "March", "April", "May", "June",
+               "July", "August", "September", "October", "November", "December"]
+
+
+def _ink_on(fill_hex: str) -> str:
+    """Black or white — whichever reads better on ``fill_hex`` (WCAG contrast)."""
+    return ("#ffffff" if theme.contrast_ratio("#ffffff", fill_hex)
+            >= theme.contrast_ratio("#0b0b12", fill_hex) else "#0b0b12")
+
+
+def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
+    idx = year * 12 + (month - 1) + delta
+    return idx // 12, idx % 12 + 1
+
+
+class _CalendarScanSignals(QObject):
+    done = Signal(list, list)  # (items, skipped_folder_paths)
+
+
+class CalendarScanRunnable(QRunnable):
+    """Off-thread disk scan of the tracked folders (excludes the open folder,
+    which the UI thread reads from the live store). Fail-soft: never raises."""
+
+    def __init__(self, folder_paths: list[str], exclude_resolved: str | None = None):
+        super().__init__()
+        self._folders = list(folder_paths)
+        self._exclude = exclude_resolved
+        self.signals = _CalendarScanSignals()
+
+    def run(self) -> None:
+        try:
+            items, skipped = cal.scan_disk(self._folders, self._exclude)
+        except Exception:
+            items, skipped = [], []
+        self.signals.done.emit(items, skipped)
+
+
+class _KindDot(QWidget):
+    """A small color dot for the calendar legend (theme-reactive)."""
+
+    def __init__(self, kind: str, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._kind = kind
+        self.setFixedSize(12, 12)
+
+    def paintEvent(self, _event) -> None:
+        color = getattr(theme, KIND_COLOR_KEY.get(self._kind, "ACCENT"), theme.ACCENT)
+        with QPainter(self) as p:
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setBrush(QColor(color))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(QRectF(1, 1, 10, 10))
+
+
+class MonthGrid(QWidget):
+    """Custom-painted month grid: 6 weeks × 7 days with scheduled-item bars.
+
+    Read-only here (paints what's scheduled); drag/resize is layered on in a
+    later pass. Bars come from the pure ``calendar.layout_month`` helper, so the
+    week-splitting and lane-packing logic stays testable without Qt.
+    """
+
+    day_clicked = Signal(object)       # a datetime.date
+    item_activated = Signal(object)    # a ScheduledItem
+
+    PAD = 8
+    HEADER_H = 26
+    DAY_NUM_H = 24
+    LANE_H = 18
+    LANE_GAP = 3
+    BAR_PAD_X = 3
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        today = date.today()
+        self._year = today.year
+        self._month = today.month
+        self._today = today
+        self._items: list = []
+        self._grid_start = cal.month_grid_start(self._year, self._month)
+        self._bars: list = []
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumHeight(380)
+        self.setMouseTracking(True)
+
+    # ── public API ──
+    def set_month(self, year: int, month: int) -> None:
+        self._year, self._month = year, month
+        self._recompute()
+
+    def set_items(self, items: list) -> None:
+        self._items = items or []
+        self._recompute()
+
+    def set_today(self, day: date) -> None:
+        self._today = day
+        self.update()
+
+    def year_month(self) -> tuple[int, int]:
+        return self._year, self._month
+
+    def _recompute(self) -> None:
+        self._grid_start = cal.month_grid_start(self._year, self._month)
+        self._bars = cal.layout_month(self._items, self._grid_start)
+        self.update()
+
+    # ── geometry ──
+    def _geom(self) -> tuple[float, float, float, float]:
+        ox = float(self.PAD)
+        oy = float(self.PAD + self.HEADER_H)
+        cw = (self.width() - 2 * self.PAD) / 7.0
+        ch = (self.height() - self.PAD - oy) / 6.0
+        return ox, oy, cw, ch
+
+    def _cell_rect(self, week: int, col: int) -> QRectF:
+        ox, oy, cw, ch = self._geom()
+        return QRectF(ox + col * cw, oy + week * ch, cw, ch)
+
+    def _lane_pitch(self) -> int:
+        return self.LANE_H + self.LANE_GAP
+
+    def _max_lanes(self, ch: float) -> int:
+        usable = ch - self.DAY_NUM_H - 4
+        return max(0, int(usable // self._lane_pitch()))
+
+    def _draw_limit(self, ch: float) -> int:
+        """Number of bar lanes actually drawn (one fewer than fits if anything
+        overflows, to leave room for the '+N more' marker). Shared by paint and
+        hit-testing so a click on the marker doesn't activate a hidden bar."""
+        max_fit = self._max_lanes(ch)
+        overflow = (any(b.lane >= max_fit for b in self._bars) if max_fit > 0
+                    else bool(self._bars))
+        return max(0, (max_fit - 1) if overflow else max_fit)
+
+    def _cell_date(self, week: int, col: int) -> date:
+        return self._grid_start + timedelta(days=week * 7 + col)
+
+    # ── painting ──
+    def paintEvent(self, _event) -> None:
+        ox, oy, cw, ch = self._geom()
+        with QPainter(self) as p:
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.fillRect(self.rect(), QColor(theme.BG))
+            self._paint_weekday_header(p, ox, cw)
+            self._paint_cells(p, cw, ch)
+            self._paint_bars(p, cw, ch)
+
+    def _paint_weekday_header(self, p: QPainter, ox: float, cw: float) -> None:
+        f = QFont(self.font())
+        f.setPointSizeF(max(8.0, self.font().pointSizeF() - 1))
+        f.setBold(True)
+        p.setFont(f)
+        p.setPen(QColor(theme.TEXT_MUTED))
+        for col, label in enumerate(WEEKDAY_LABELS):
+            r = QRectF(ox + col * cw, self.PAD, cw, self.HEADER_H)
+            p.drawText(r, Qt.AlignmentFlag.AlignCenter, label)
+
+    def _paint_cells(self, p: QPainter, cw: float, ch: float) -> None:
+        num_font = QFont(self.font())
+        num_font.setPointSizeF(max(8.5, self.font().pointSizeF() - 0.5))
+        for week in range(6):
+            for col in range(7):
+                d = self._cell_date(week, col)
+                in_month = d.month == self._month
+                is_today = d == self._today
+                is_weekend = col >= 5
+                cell = self._cell_rect(week, col).adjusted(1.5, 1.5, -1.5, -1.5)
+
+                if not in_month:
+                    bg = QColor(theme.BG)
+                elif is_weekend:
+                    bg = QColor(theme.SURFACE_2)
+                else:
+                    bg = QColor(theme.SURFACE)
+                p.setBrush(bg)
+                p.setPen(QPen(QColor(theme.BORDER), 1.0))
+                p.drawRoundedRect(cell, 7, 7)
+
+                # Day number (today gets an accent badge).
+                p.setFont(num_font)
+                num_box = QRectF(cell.left() + 6, cell.top() + 3,
+                                 cell.width() - 12, self.DAY_NUM_H - 4)
+                if is_today:
+                    badge_d = min(self.DAY_NUM_H - 6, 22)
+                    badge = QRectF(num_box.left() - 2, num_box.top(), badge_d, badge_d)
+                    p.setBrush(QColor(theme.ACCENT))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.drawRoundedRect(badge, badge_d / 2, badge_d / 2)
+                    p.setPen(QColor(_ink_on(theme.ACCENT)))
+                    p.drawText(badge, Qt.AlignmentFlag.AlignCenter, str(d.day))
+                else:
+                    p.setPen(QColor(theme.TEXT if in_month else theme.TEXT_MUTED))
+                    p.drawText(num_box, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                               str(d.day))
+
+    def _paint_bars(self, p: QPainter, cw: float, ch: float) -> None:
+        pitch = self._lane_pitch()
+        draw_limit = self._draw_limit(ch)
+        hidden: dict[tuple[int, int], int] = {}
+        bar_font = QFont(self.font())
+        bar_font.setPointSizeF(max(8.0, self.font().pointSizeF() - 1.5))
+        fm = QFontMetrics(bar_font)
+
+        for bar in self._bars:
+            if bar.item_index >= len(self._items):
+                continue
+            if bar.lane >= draw_limit:
+                for c in range(bar.col_start, bar.col_end + 1):
+                    hidden[(bar.week, c)] = hidden.get((bar.week, c), 0) + 1
+                continue
+            item = self._items[bar.item_index]
+            left_cell = self._cell_rect(bar.week, bar.col_start)
+            right_cell = self._cell_rect(bar.week, bar.col_end)
+            x0 = left_cell.left() + self.BAR_PAD_X
+            x1 = right_cell.right() - self.BAR_PAD_X
+            y = left_cell.top() + self.DAY_NUM_H + bar.lane * pitch
+            rect = QRectF(x0, y, max(6.0, x1 - x0), self.LANE_H)
+
+            fill = QColor(getattr(theme, KIND_COLOR_KEY.get(item.kind, "ACCENT"), theme.ACCENT))
+            if item.done:
+                fill.setAlpha(110)
+            self._draw_bar_shape(p, rect, fill, bar.continues_left, bar.continues_right)
+
+            # Title text.
+            p.setFont(bar_font)
+            ink = QColor(_ink_on(fill.name()))
+            if item.done:
+                ink.setAlpha(200)
+            p.setPen(ink)
+            tf = QFont(bar_font)
+            tf.setStrikeOut(item.done)
+            p.setFont(tf)
+            text_rect = rect.adjusted(7, 0, -6, 0)
+            label = fm.elidedText(item.title or "(untitled)", Qt.TextElideMode.ElideRight,
+                                  int(text_rect.width()))
+            p.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label)
+
+        # "+N more" overflow markers, in the reserved slot just below the last
+        # drawn bar lane (so they never overlap a bar).
+        if hidden:
+            of = QFont(self.font())
+            of.setPointSizeF(max(7.5, self.font().pointSizeF() - 2))
+            of.setBold(True)
+            p.setFont(of)
+            p.setPen(QColor(theme.TEXT_MUTED))
+            for (week, col), n in hidden.items():
+                cell = self._cell_rect(week, col)
+                y = cell.top() + self.DAY_NUM_H + draw_limit * pitch
+                r = QRectF(cell.left() + 7, y, cell.width() - 12, self.LANE_H)
+                p.drawText(r, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                           f"+{n} more")
+
+    def _draw_bar_shape(self, p: QPainter, rect: QRectF, fill: QColor,
+                        cont_left: bool, cont_right: bool) -> None:
+        """Rounded bar, with a pointed wing on any side that continues."""
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(fill)
+        r = 5.0
+        path = QPainterPath()
+        if not cont_left and not cont_right:
+            path.addRoundedRect(rect, r, r)
+        else:
+            # Body as a plain rect; add a triangle wing on each continuing side.
+            path.addRoundedRect(rect, r, r)
+            mid = rect.center().y()
+            wing = min(7.0, rect.height() * 0.5)
+            if cont_left:
+                tri = QPainterPath()
+                tri.moveTo(rect.left(), rect.top())
+                tri.lineTo(rect.left() - wing, mid)
+                tri.lineTo(rect.left(), rect.bottom())
+                tri.closeSubpath()
+                path = path.united(tri)
+            if cont_right:
+                tri = QPainterPath()
+                tri.moveTo(rect.right(), rect.top())
+                tri.lineTo(rect.right() + wing, mid)
+                tri.lineTo(rect.right(), rect.bottom())
+                tri.closeSubpath()
+                path = path.united(tri)
+        p.drawPath(path)
+
+    # ── interaction ──
+    def _hit(self, pos: QPointF):
+        """Return ('item', ScheduledItem) or ('day', date) or None for a point."""
+        ox, oy, cw, ch = self._geom()
+        if pos.x() < ox or pos.y() < oy or cw <= 0 or ch <= 0:
+            return None
+        col = int((pos.x() - ox) // cw)
+        week = int((pos.y() - oy) // ch)
+        if not (0 <= col <= 6 and 0 <= week <= 5):
+            return None
+        cell = self._cell_rect(week, col)
+        local_y = pos.y() - cell.top()
+        draw_limit = self._draw_limit(ch)
+        if local_y >= self.DAY_NUM_H:
+            lane = int((local_y - self.DAY_NUM_H) // self._lane_pitch())
+            if 0 <= lane < draw_limit:
+                for bar in self._bars:
+                    if (bar.week == week and bar.lane == lane
+                            and bar.col_start <= col <= bar.col_end
+                            and bar.item_index < len(self._items)):
+                        return ("item", self._items[bar.item_index])
+        return ("day", self._cell_date(week, col))
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            hit = self._hit(event.position())
+            if hit and hit[0] == "item":
+                self.item_activated.emit(hit[1])
+                event.accept()
+                return
+            if hit and hit[0] == "day":
+                self.day_clicked.emit(hit[1])
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+
+class CalendarView(QWidget):
+    """The Calendar tab: month navigation + legend over a :class:`MonthGrid`."""
+
+    day_clicked = Signal(object)
+    item_activated = Signal(object)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("calendarView")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(14, 12, 14, 14)
+        root.setSpacing(10)
+
+        # Header: ‹  Month YYYY  ›   [Today]        • Projects • Playlists • Todos
+        header = QHBoxLayout()
+        header.setSpacing(8)
+        self.prev_btn = QPushButton("‹")
+        self.next_btn = QPushButton("›")
+        for b in (self.prev_btn, self.next_btn):
+            b.setObjectName("calNav")
+            b.setFixedSize(32, 30)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.prev_btn.clicked.connect(self._prev_month)
+        self.next_btn.clicked.connect(self._next_month)
+
+        self.title_label = QLabel("")
+        self.title_label.setObjectName("calMonthTitle")
+        self.title_label.setMinimumWidth(190)
+
+        self.today_btn = QPushButton("Today")
+        self.today_btn.setObjectName("calToday")
+        self.today_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.today_btn.clicked.connect(self._go_today)
+
+        header.addWidget(self.prev_btn)
+        header.addWidget(self.title_label)
+        header.addWidget(self.next_btn)
+        header.addSpacing(8)
+        header.addWidget(self.today_btn)
+        header.addStretch(1)
+        for kind, text in ((cal.KIND_PROJECT, "Projects"),
+                           (cal.KIND_PLAYLIST, "Playlists"),
+                           (cal.KIND_TODO, "Todos")):
+            header.addWidget(_KindDot(kind))
+            lbl = QLabel(text)
+            lbl.setObjectName("calLegend")
+            header.addWidget(lbl)
+            header.addSpacing(6)
+        root.addLayout(header)
+
+        self.grid = MonthGrid()
+        self.grid.day_clicked.connect(self.day_clicked.emit)
+        self.grid.item_activated.connect(self.item_activated.emit)
+        root.addWidget(self.grid, 1)
+
+        self._refresh_title()
+
+    def set_items(self, items: list) -> None:
+        self.grid.set_items(items)
+
+    def set_month(self, year: int, month: int) -> None:
+        self.grid.set_month(year, month)
+        self._refresh_title()
+
+    def set_today(self, day: date) -> None:
+        self.grid.set_today(day)
+
+    def _refresh_title(self) -> None:
+        y, m = self.grid.year_month()
+        self.title_label.setText(f"{MONTH_NAMES[m]} {y}")
+
+    def _prev_month(self) -> None:
+        y, m = _shift_month(*self.grid.year_month(), -1)
+        self.grid.set_month(y, m)
+        self._refresh_title()
+
+    def _next_month(self) -> None:
+        y, m = _shift_month(*self.grid.year_month(), 1)
+        self.grid.set_month(y, m)
+        self._refresh_title()
+
+    def _go_today(self) -> None:
+        today = date.today()
+        self.grid.set_today(today)
+        self.grid.set_month(today.year, today.month)
+        self._refresh_title()

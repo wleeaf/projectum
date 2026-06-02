@@ -52,6 +52,12 @@ class Project:
     pinned: bool = False
     position: int = 0  # manual sort key; pinned items still float to top
     tested: bool = False
+    # Calendar scheduling. ISO "YYYY-MM-DD"; "" == unscheduled. `end` is
+    # INCLUSIVE — start == end (or end == "") means a single day. This
+    # convention is shared by storage, the layout helper, and the day-bucket
+    # query in calendar.py; keep them in lockstep.
+    start: str = ""
+    end: str = ""
 
     @property
     def folder(self) -> Path:
@@ -90,6 +96,8 @@ class Playlist:
     notes: str = ""                    # free-form per-playlist notes
     pinned: bool = False
     position: int = 0                  # manual sort key
+    start: str = ""                    # calendar: ISO date, "" == unscheduled
+    end: str = ""                      # inclusive end; "" / == start => single day
 
     @property
     def total(self) -> int:
@@ -162,6 +170,8 @@ class Todo:
     text: str
     done: bool = False
     position: int = 0  # manual sort key (drag-to-reorder)
+    start: str = ""    # calendar: ISO date, "" == unscheduled
+    end: str = ""      # inclusive end; "" / == start => single day
 
 
 class ProjectStore:
@@ -237,6 +247,8 @@ class ProjectStore:
                 ex.pinned = bool(d.get("pinned", False))
                 ex.position = _as_int(d.get("position", 0))
                 ex.tested = bool(d.get("tested", False))
+                ex.start = _as_str(d.get("start"))
+                ex.end = _as_str(d.get("end"))
                 new_projects[name] = ex
             else:
                 new_projects[name] = Project(
@@ -248,6 +260,8 @@ class ProjectStore:
                     pinned=bool(d.get("pinned", False)),
                     position=_as_int(d.get("position", 0)),
                     tested=bool(d.get("tested", False)),
+                    start=_as_str(d.get("start")),
+                    end=_as_str(d.get("end")),
                 )
         self.projects = new_projects
 
@@ -260,6 +274,7 @@ class ProjectStore:
                 d.get("notes") or d.get("tags")
                 or d.get("completed") or d.get("tested")
                 or d.get("pinned") or d.get("position")
+                or d.get("start") or d.get("end")
             )
         }
 
@@ -315,6 +330,8 @@ class ProjectStore:
                 existing_pl.notes = str(pdata.get("notes", ""))
                 existing_pl.pinned = bool(pdata.get("pinned", False))
                 existing_pl.position = _as_int(pdata.get("position", 0))
+                existing_pl.start = _as_str(pdata.get("start"))
+                existing_pl.end = _as_str(pdata.get("end"))
                 existing_pl.videos = videos
                 new_playlists.append(existing_pl)
             else:
@@ -329,6 +346,8 @@ class ProjectStore:
                     notes=str(pdata.get("notes", "")),
                     pinned=bool(pdata.get("pinned", False)),
                     position=_as_int(pdata.get("position", 0)),
+                    start=_as_str(pdata.get("start")),
+                    end=_as_str(pdata.get("end")),
                 ))
         self.playlists = new_playlists
 
@@ -347,16 +366,20 @@ class ProjectStore:
             text = _as_str(tdata.get("text"), "")
             done = bool(tdata.get("done", False))
             position = _as_int(tdata.get("position", 0))
+            start = _as_str(tdata.get("start"))
+            end = _as_str(tdata.get("end"))
             if et is not None:
                 et.text, et.done, et.position = text, done, position
+                et.start, et.end = start, end
                 new_todos.append(et)
             else:
-                new_todos.append(Todo(id=tid, text=text, done=done, position=position))
+                new_todos.append(Todo(id=tid, text=text, done=done, position=position,
+                                      start=start, end=end))
         self.todos = new_todos
 
     def save(self) -> None:
         payload = {
-            "version": 1,
+            "version": 2,
             "notes": self.notes,
             "projects": {
                 name: {
@@ -366,6 +389,8 @@ class ProjectStore:
                     "pinned": p.pinned,
                     "position": p.position,
                     "tested": p.tested,
+                    "start": p.start,
+                    "end": p.end,
                 }
                 for name, p in self.projects.items()
             },
@@ -382,6 +407,8 @@ class ProjectStore:
                     "notes": pl.notes,
                     "pinned": pl.pinned,
                     "position": pl.position,
+                    "start": pl.start,
+                    "end": pl.end,
                     "videos": [
                         {
                             "id": v.id,
@@ -403,6 +430,8 @@ class ProjectStore:
                     "text": t.text,
                     "done": t.done,
                     "position": t.position,
+                    "start": t.start,
+                    "end": t.end,
                 }
                 for t in self.todos
             ],
