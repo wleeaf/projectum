@@ -41,6 +41,12 @@ packages = ["projectum"]
 [tool.setuptools.package-data]
 projectum = ["assets/*.svg"]
 
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so `pytest` (the console script, as CI runs it)
+# can import the `projectum` package without an editable install or PYTHONPATH.
+pythonpath = ["."]
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
