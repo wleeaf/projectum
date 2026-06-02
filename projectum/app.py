@@ -29,8 +29,8 @@ from .store import Playlist, Project, ProjectStore, Video
 from . import theme
 from .theme import tag_color
 from .anims import (
-    animate_progress, collapse_list_item, cross_fade_stack, fade_in,
-    fade_out, fade_window, slide_in_height, slide_out_height,
+    animate_progress, collapse_list_item, cross_fade_stack, cross_fade_swap,
+    fade_in, fade_out, fade_window, slide_in_height, slide_out_height,
     SmoothScrollFilter,
 )
 from .widgets import (
@@ -3073,7 +3073,21 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             raw_size = theme.DEFAULT_FONT_SIZE
         new_size = max(theme.FONT_SIZE_MIN, min(theme.FONT_SIZE_MAX, raw_size))
+        theme_changed = new_theme != theme.current_theme_name()
 
+        # A theme swap restyles the whole window at once; crossfade the old
+        # appearance into the new one so it doesn't jarringly snap. Font-only
+        # changes apply instantly (no fade).
+        if theme_changed:
+            cross_fade_swap(
+                self._frame_wrapper,
+                lambda: self._apply_settings_now(new_theme, new_family, new_size),
+                duration=260,
+            )
+        else:
+            self._apply_settings_now(new_theme, new_family, new_size)
+
+    def _apply_settings_now(self, new_theme: str, new_family: str, new_size: int) -> None:
         theme.apply_theme(new_theme)
         theme.apply_font(family=new_family, size=new_size)
 

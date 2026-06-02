@@ -238,6 +238,55 @@ def cross_fade_stack(
     anim.start()
 
 
+def cross_fade_swap(widget: QWidget, apply_change, duration: int = 240) -> None:
+    """Snapshot ``widget``, run ``apply_change()``, then fade the snapshot out
+    over the freshly-rendered widget — a crossfade for in-place restyles (e.g.
+    a theme swap, where the stylesheet changes but the widget tree stays).
+
+    The snapshot also conveniently hides the relayout/rebuild that
+    ``apply_change`` may trigger underneath it.
+    """
+    if widget.width() <= 0 or widget.height() <= 0 or not widget.isVisible():
+        apply_change()
+        return
+    # Tear down any in-flight overlay so rapid theme changes don't stack.
+    previous = getattr(widget, "_cross_fade_overlay", None)
+    if previous is not None:
+        try:
+            previous.deleteLater()
+        except RuntimeError:
+            pass
+        widget._cross_fade_overlay = None
+
+    pixmap = widget.grab()
+    apply_change()
+
+    overlay = QLabel(widget)
+    overlay.setPixmap(pixmap)
+    overlay.setGeometry(0, 0, widget.width(), widget.height())
+    overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    overlay.raise_()
+    overlay.show()
+    widget._cross_fade_overlay = overlay
+
+    eff = QGraphicsOpacityEffect(overlay)
+    eff.setOpacity(1.0)
+    overlay.setGraphicsEffect(eff)
+    anim = QPropertyAnimation(eff, b"opacity", overlay)
+    anim.setDuration(duration)
+    anim.setStartValue(1.0)
+    anim.setEndValue(0.0)
+    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def _cleanup():
+        if getattr(widget, "_cross_fade_overlay", None) is overlay:
+            widget._cross_fade_overlay = None
+        overlay.deleteLater()
+    anim.finished.connect(_cleanup)
+    overlay._anim = anim
+    anim.start()
+
+
 # ──────────────────────── slide for height-collapsible sections ────────────────────────
 
 
