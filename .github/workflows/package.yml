@@ -1,9 +1,13 @@
 name: Package (Windows / macOS)
 
-# Manual only — these binaries are unsigned and iterated independently of the
-# tagged Linux release. Build artifacts are attached to the workflow run; once
-# a platform is proven they can be wired into the release pipeline.
+# Builds the unsigned Windows .exe and macOS .dmg.
+#  • On every version tag (v*) the binaries are attached to the GitHub Release,
+#    so a single `gh release create vX.Y.Z` ships all three platforms.
+#  • On manual dispatch you can rebuild one platform without cutting a release
+#    (artifacts only — the attach step is tag-gated).
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       platform:
@@ -13,11 +17,11 @@ on:
         options: [both, windows, macos]
 
 permissions:
-  contents: read
+  contents: write  # attach binaries to the GitHub Release on tag pushes
 
 jobs:
   windows:
-    if: ${{ inputs.platform == 'windows' || inputs.platform == 'both' }}
+    if: ${{ github.event_name == 'push' || inputs.platform == 'windows' || inputs.platform == 'both' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,14 +46,24 @@ jobs:
             Write-Error "Projectum.exe exited early"; exit 1
           }
         shell: pwsh
+      # Asset name is a hard contract with README + latest/download URLs.
+      - name: Name the release asset
+        run: Copy-Item dist/Projectum.exe Projectum-windows-x64.exe
+        shell: pwsh
       - uses: actions/upload-artifact@v4
         with:
           name: Projectum-windows-x64
-          path: dist/Projectum.exe
+          path: Projectum-windows-x64.exe
           if-no-files-found: error
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Projectum-windows-x64.exe
+          fail_on_unmatched_files: true
 
   macos:
-    if: ${{ inputs.platform == 'macos' || inputs.platform == 'both' }}
+    if: ${{ github.event_name == 'push' || inputs.platform == 'macos' || inputs.platform == 'both' }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,12 +88,19 @@ jobs:
           else
             echo "Projectum.app exited early"; exit 1
           fi
+      # Asset name is a hard contract with README + latest/download URLs.
       - name: Package .dmg
         run: |
           hdiutil create -volname Projectum -srcfolder dist/Projectum.app \
-            -ov -format UDZO Projectum.dmg
+            -ov -format UDZO Projectum-macos.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: Projectum-macos
-          path: Projectum.dmg
+          path: Projectum-macos.dmg
           if-no-files-found: error
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Projectum-macos.dmg
+          fail_on_unmatched_files: true
