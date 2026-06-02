@@ -2906,7 +2906,8 @@ class LinksDialog(QWidget):
     changed = Signal()           # after any add/remove, so the app can refresh
     navigate = Signal(object)    # open/navigate to a linked EntityRef
 
-    def __init__(self, subject_ref, subject_title, store, index, parent=None):
+    def __init__(self, subject_ref, subject_title, store, index, parent=None,
+                 allow_range=False):
         super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
         from PySide6.QtWidgets import QDateEdit
         from PySide6.QtCore import QDate, QLocale
@@ -2915,6 +2916,11 @@ class LinksDialog(QWidget):
         self._ref = subject_ref
         self._store = store
         self._index = index
+        self._en = QLocale(QLocale.Language.English)
+        # When attributing a single day from the calendar, let the user extend
+        # it into a date frame right here by picking a later End date.
+        self._range_start = (subject_ref.key
+                             if allow_range and subject_ref.is_date else None)
 
         v = QVBoxLayout(self)
         v.setContentsMargins(22, 18, 22, 18)
@@ -2923,10 +2929,36 @@ class LinksDialog(QWidget):
         title = QLabel("Links")
         title.setObjectName("linksTitle")
         v.addWidget(title)
-        sub = QLabel(f"{KIND_LABEL.get(subject_ref.kind, subject_ref.kind)} · {subject_title}")
-        sub.setObjectName("linksSub")
-        sub.setWordWrap(True)
-        v.addWidget(sub)
+        self._sub = QLabel(
+            f"{KIND_LABEL.get(subject_ref.kind, subject_ref.kind)} · {subject_title}")
+        self._sub.setObjectName("linksSub")
+        self._sub.setWordWrap(True)
+        v.addWidget(self._sub)
+
+        if self._range_start is not None:
+            rr = QHBoxLayout()
+            rr.setSpacing(8)
+            rlbl = QLabel("End date")
+            rlbl.setObjectName("scheduleFieldLabel")
+            rr.addWidget(rlbl)
+            self._range_end = QDateEdit()
+            self._range_end.setObjectName("scheduleDate")
+            self._range_end.setLocale(self._en)
+            self._range_end.setCalendarPopup(True)
+            self._range_end.setDisplayFormat("ddd, MMM d yyyy")
+            start_q = QDate.fromString(self._range_start, Qt.DateFormat.ISODate)
+            if start_q.isValid():
+                self._range_end.setMinimumDate(start_q)
+                self._range_end.setDate(start_q)
+            cwidget = self._range_end.calendarWidget()
+            if cwidget is not None:
+                cwidget.setLocale(self._en)
+            self._range_end.dateChanged.connect(self._on_range_end_changed)
+            rr.addWidget(self._range_end, 1)
+            hint = QLabel("(set a later day for a range)")
+            hint.setObjectName("scheduleHint")
+            rr.addWidget(hint)
+            v.addLayout(rr)
 
         # Current links — fixed-height scroll so the layout never reflows.
         linked_lbl = QLabel("Linked")
@@ -2969,7 +3001,7 @@ class LinksDialog(QWidget):
         # Add a date link.
         date_row = QHBoxLayout()
         date_row.setSpacing(8)
-        en = QLocale(QLocale.Language.English)
+        en = self._en
         self._date = QDateEdit()
         self._date.setObjectName("scheduleDate")
         self._date.setLocale(en)
@@ -3092,6 +3124,23 @@ class LinksDialog(QWidget):
         if ref is not None and self._store.add(self._ref, ref):
             self.changed.emit()
             self._refresh_links()
+
+    def _on_range_end_changed(self, qdate) -> None:
+        """Extend (or collapse) the day being attributed into a date frame."""
+        end = qdate.toString(Qt.DateFormat.ISODate)
+        start = self._range_start
+        new_ref = (links_mod.daterange_ref(start, end)
+                   if end and end > start else links_mod.date_ref(start))
+        self._retarget(new_ref)
+
+    def _retarget(self, new_ref) -> None:
+        if new_ref == self._ref:
+            return
+        self._ref = new_ref          # now managing the frame's (or day's) links
+        label = _format_temporal(new_ref) or new_ref.key
+        self._sub.setText(f"{KIND_LABEL.get(new_ref.kind, new_ref.kind)} · {label}")
+        self._refresh_links()
+        self._on_search(self._search.text())
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:

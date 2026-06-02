@@ -142,6 +142,19 @@ def test_links_dialog_add_delta_duration(qapp, tmp_path):
     dlg.deleteLater()
 
 
+def test_links_dialog_extend_day_to_range(qapp, tmp_path):
+    from PySide6.QtCore import QDate
+    from projectum.widgets import LinksDialog
+    store = LinkStore(tmp_path / "l.json")
+    dlg = LinksDialog(date_ref("2026-06-09"), "Jun 9", store, {}, allow_range=True)
+    assert dlg._ref == date_ref("2026-06-09")
+    dlg._range_end.setDate(QDate(2026, 6, 13))     # later end -> becomes a frame
+    assert dlg._ref == daterange_ref("2026-06-09", "2026-06-13")
+    dlg._range_end.setDate(QDate(2026, 6, 9))      # back to start -> single day again
+    assert dlg._ref == date_ref("2026-06-09")
+    dlg.deleteLater()
+
+
 def test_open_links_dialog_indexes_cross_folder(window, qapp, tmp_path):
     fa = tmp_path / "work"; fa.mkdir(); (fa / "alpha").mkdir()
     fb = tmp_path / "media"; fb.mkdir(); (fb / "beta").mkdir()

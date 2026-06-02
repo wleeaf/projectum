@@ -3261,9 +3261,10 @@ class MainWindow(QMainWindow):
         self.calendar_view.set_items(entries)
 
     def _on_calendar_day_attribute(self, day) -> None:
-        """Select a day and attribute it — manage what's linked to that date."""
+        """Select a day and attribute it — manage what's linked to that date,
+        with an End-date control to extend it into a frame."""
         self._open_links_dialog(links_mod.date_ref(day.isoformat()),
-                                _format_date_iso(day.isoformat()))
+                                _format_date_iso(day.isoformat()), allow_range=True)
 
     def _on_calendar_frame_attribute(self, start, end) -> None:
         """Drag-select a frame (range) and attribute it."""
@@ -3294,13 +3295,14 @@ class MainWindow(QMainWindow):
 
     # ─── Relations (links) ───────────────────────────────────────
 
-    def _open_links_dialog(self, ref, title: str) -> None:
+    def _open_links_dialog(self, ref, title: str, allow_range: bool = False) -> None:
         if self._links_dialog is not None and self._links_dialog.isVisible():
             self._links_dialog.raise_()
             self._links_dialog.activateWindow()
             return
         index = self._build_entity_index()
-        dlg = LinksDialog(ref, title, self._link_store, index, parent=self)
+        dlg = LinksDialog(ref, title, self._link_store, index, parent=self,
+                          allow_range=allow_range)
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dlg.changed.connect(self._on_links_changed)
         dlg.navigate.connect(self._navigate_to)
