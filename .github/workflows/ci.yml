@@ -45,13 +45,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff
+          pip install ruff pytest
 
       - name: Lint (ruff)
         run: ruff check projectum
 
       - name: Compile-check all modules
         run: python -m compileall -q projectum
+
+      - name: Run tests (headless)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest -q
 
       - name: Smoke-import GUI on a headless display
         env:
