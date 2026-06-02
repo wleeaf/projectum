@@ -1320,6 +1320,101 @@ QPushButton#scheduleCancel:hover {{
 QPushButton#scheduleClear:disabled {{
     color: {TEXT_MUTED};
 }}
+
+/* ── Links dialog ── */
+QWidget#linksDialog {{
+    background-color: {SURFACE};
+    border: 1px solid {BORDER};
+    border-radius: 14px;
+}}
+
+QLabel#linksTitle {{
+    color: {TEXT};
+    font-size: {size + 3}px;
+    font-weight: 600;
+}}
+
+QLabel#linksSub {{
+    color: {ACCENT};
+    font-size: {size}px;
+    font-weight: 600;
+}}
+
+QLabel#linksSectionLabel {{
+    color: {TEXT_MUTED};
+    font-size: {max(size - 2, 10)}px;
+    font-weight: 700;
+}}
+
+QLabel#linksEmpty {{
+    color: {TEXT_MUTED};
+    font-size: {max(size - 1, 10)}px;
+    padding: 4px 2px;
+}}
+
+QLabel#linkRowLabel {{
+    color: {TEXT};
+    font-size: {size}px;
+}}
+
+QLabel#linkRowDangling {{
+    color: {TEXT_MUTED};
+    font-size: {size}px;
+    font-style: italic;
+}}
+
+QLabel#linkRowKind {{
+    color: {TEXT_MUTED};
+    font-size: {max(size - 3, 9)}px;
+    font-weight: 600;
+}}
+
+QLineEdit#linksSearch {{
+    background-color: {SURFACE_2};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    padding: 6px 10px;
+}}
+
+QLineEdit#linksSearch:focus {{
+    border-color: {ACCENT};
+}}
+
+QListWidget#linksResults {{
+    background-color: {SURFACE_2};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    outline: 0;
+}}
+
+QListWidget#linksResults::item {{
+    padding: 5px 8px;
+    border-radius: 5px;
+}}
+
+QListWidget#linksResults::item:hover {{
+    background-color: {SURFACE_3};
+}}
+
+QListWidget#linksResults::item:selected {{
+    background-color: {ACCENT};
+    color: {BG};
+}}
+
+QPushButton#linksAddDate {{
+    background-color: {SURFACE_2};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    padding: 6px 14px;
+}}
+
+QPushButton#linksAddDate:hover {{
+    border-color: {ACCENT};
+    color: {ACCENT};
+}}
 """
 
 

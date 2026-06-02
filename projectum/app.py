@@ -27,6 +27,8 @@ from functools import partial
 
 from .store import Playlist, Project, ProjectStore, Video
 from . import calendar as cal
+from . import links as links_mod
+from .links import LinkStore, make_ref
 from . import theme
 from .theme import tag_color
 from .anims import (
@@ -37,9 +39,9 @@ from .anims import (
 from .widgets import (
     BrandMark, CalendarScanRunnable, CalendarView, ColorPickerPopup,
     CommandPalette, CompletionToggle, FlowLayout, FrameWrapper, GitRunnable,
-    IconButton, MarkdownHighlighter, PlaylistRow, ProjectRow, ScheduleDialog,
-    SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar, TodoRow,
-    UpdateBanner, VideoRow, WindowControlButton,
+    IconButton, LinksDialog, MarkdownHighlighter, PlaylistRow, ProjectRow,
+    ScheduleDialog, SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar,
+    TodoRow, UpdateBanner, VideoRow, WindowControlButton,
 )
 from .youtube import PlaylistFetchRunnable
 from .update import UpdateCheckRunnable
@@ -145,6 +147,12 @@ class MainWindow(QMainWindow):
         # cross-thread `done` is delivered, dropping the result.
         self._calendar_runnables: set = set()
         self._schedule_dialog: ScheduleDialog | None = None
+        # Global relation graph (cross-folder) + a cached entity index used to
+        # resolve/search links. The store is one file we own, written on the UI
+        # thread; the index is rebuilt from a read-only cross-folder scan.
+        self._link_store = LinkStore(state_dir() / "links.json")
+        self._links_dialog: LinksDialog | None = None
+        self._entity_index: dict = {}
 
         # Playlists state
         self.current_tab: str = "projects"
@@ -990,6 +998,12 @@ class MainWindow(QMainWindow):
         )
         self.todo_list_widget.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.todo_list_widget.model().rowsMoved.connect(self._persist_todo_order)
+        self.todo_list_widget.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.todo_list_widget.customContextMenuRequested.connect(
+            self._show_todo_context_menu
+        )
         v.addWidget(self.todo_list_widget, 1)
 
         self.todo_empty_hint = QLabel(
@@ -1061,6 +1075,7 @@ class MainWindow(QMainWindow):
         if not self.store:
             return
         self.store.remove_todo(todo_id)
+        self._prune_links_for("todo", todo_id)
         item = self._todo_items.pop(todo_id, None)
 
         def _drop():
@@ -1615,6 +1630,13 @@ class MainWindow(QMainWindow):
         )
         menu.addAction(toggle)
         menu.addSeparator()
+        relate = QAction("Links…", menu)
+        relate.triggered.connect(partial(
+            self._open_links_dialog,
+            make_ref("project", str(self.store.root), project.name), project.name,
+        ))
+        menu.addAction(relate)
+        menu.addSeparator()
         # Bulletproof actions first.
         reveal = QAction("Open folder", menu)
         reveal.triggered.connect(partial(self._reveal_in_file_manager, folder))
@@ -1745,6 +1767,12 @@ class MainWindow(QMainWindow):
         toggle = QAction("Unpin from top" if pl.pinned else "Pin to top", menu)
         toggle.triggered.connect(partial(self._toggle_playlist_pin, pid))
         menu.addAction(toggle)
+        relate = QAction("Links…", menu)
+        relate.triggered.connect(partial(
+            self._open_links_dialog,
+            make_ref("playlist", str(self.store.root), pid), pl.title,
+        ))
+        menu.addAction(relate)
         menu.exec(self.playlists_list_widget.viewport().mapToGlobal(pos))
 
     def _toggle_playlist_pin(self, pid: str) -> None:
@@ -2794,6 +2822,7 @@ class MainWindow(QMainWindow):
         pid = pl.id
         self._refreshing_playlist_ids.discard(pid)
         self.store.remove_playlist(pid)
+        self._prune_links_for("playlist", pid)
         self.store.prune_unused_tag_colors()
         self.store.save()
         item = self._playlist_items.pop(pid, None)
@@ -3221,6 +3250,69 @@ class MainWindow(QMainWindow):
         if cal.apply_dates(self.store, item, start, end):
             self._refresh_calendar_view()
             self._rescan_calendar()
+
+    # ─── Relations (links) ───────────────────────────────────────
+
+    def _build_entity_index(self) -> dict:
+        """Resolve every linkable entity across tracked folders to {ref: info}.
+        Read-only cross-folder scan; rebuilt when a Links dialog opens (a
+        discrete action) — not per keystroke (the dialog filters in memory)."""
+        folders = load_state().get("recent_folders")
+        if not isinstance(folders, list):
+            folders = []
+        items, _skipped = cal.collect_items(self.store, folders)
+        triples = [(it.home, it.kind, it.key, it.title) for it in items]
+        self._entity_index = links_mod.index_entities(triples)
+        return self._entity_index
+
+    def _open_links_dialog(self, ref, title: str) -> None:
+        if self._links_dialog is not None and self._links_dialog.isVisible():
+            self._links_dialog.raise_()
+            self._links_dialog.activateWindow()
+            return
+        index = self._build_entity_index()
+        dlg = LinksDialog(ref, title, self._link_store, index, parent=self)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dlg.changed.connect(self._on_links_changed)
+        dlg.destroyed.connect(
+            lambda *_a, d=dlg: self._forget_if_current("_links_dialog", d)
+        )
+        self._links_dialog = dlg
+        dlg.adjustSize()
+        center = self.frameGeometry().center()
+        dlg.move(center.x() - dlg.width() // 2, center.y() - dlg.height() // 2)
+        dlg.setWindowOpacity(0.0)
+        dlg.show()
+        fade_window(dlg, 1.0, duration=140)
+
+    def _on_links_changed(self) -> None:
+        # Date-link awareness in the calendar arrives in a later pass; nothing
+        # else to refresh for now.
+        pass
+
+    def _prune_links_for(self, kind: str, key: str) -> None:
+        """Drop a deleted entity's edges from the graph (explicit deletion)."""
+        if self.store is not None:
+            self._link_store.remove_entity(make_ref(kind, str(self.store.root), key))
+
+    def _show_todo_context_menu(self, pos) -> None:
+        if not self.store:
+            return
+        item = self.todo_list_widget.itemAt(pos)
+        if item is None:
+            return
+        tid = item.data(Qt.ItemDataRole.UserRole)
+        todo = self.store.get_todo(tid)
+        if todo is None:
+            return
+        menu = QMenu(self)
+        relate = QAction("Links…", menu)
+        relate.triggered.connect(partial(
+            self._open_links_dialog,
+            make_ref("todo", str(self.store.root), tid), todo.text,
+        ))
+        menu.addAction(relate)
+        menu.exec(self.todo_list_widget.viewport().mapToGlobal(pos))
 
     def _apply_settings(self, settings: dict) -> None:
         new_theme = settings.get("theme", theme.DEFAULT_THEME)

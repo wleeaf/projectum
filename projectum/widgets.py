@@ -16,11 +16,13 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QLabel,
-    QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
+    QLayout, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QScrollArea,
+    QSizePolicy,
 )
 
 from .anims import fade_window_close
 from . import calendar as cal
+from . import links as links_mod
 from . import theme
 from .theme import TAG_PALETTE, tag_color
 
@@ -28,11 +30,22 @@ from .theme import TAG_PALETTE, tag_color
 # Drag MIME marker for an unscheduled tray chip being dropped on the grid.
 SCHEDULE_MIME = "application/x-projectum-schedule"
 
-# Calendar bar color per item kind (resolved against the active theme at paint).
+# Per-entity-kind accent (resolved against the active theme at paint). Shared by
+# the calendar bars, the Unscheduled tray, the Links dialog, and the graph view.
 KIND_COLOR_KEY = {
     cal.KIND_PROJECT: "ACCENT",
     cal.KIND_PLAYLIST: "ACCENT_2",
     cal.KIND_TODO: "INFO",
+    "date": "SUCCESS",
+    "video": "ACCENT_2",
+    "note": "WARNING",
+    "tag": "TEXT_DIM",
+}
+
+# Human label for each kind, shown in the Links dialog / graph.
+KIND_LABEL = {
+    "project": "Project", "playlist": "Playlist", "todo": "Todo",
+    "date": "Date", "video": "Video", "note": "Note", "tag": "Tag",
 }
 
 
@@ -2943,6 +2956,192 @@ class ScheduleDialog(QWidget):
     def _unschedule(self) -> None:
         self.scheduled.emit("", "")
         self.close()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
+
+def _format_date_iso(iso: str) -> str:
+    d = cal.parse_date(iso)
+    if d is None:
+        return iso
+    return f"{WEEKDAY_LABELS[d.weekday()]}, {MONTH_NAMES[d.month]} {d.day} {d.year}"
+
+
+class _LinkRow(QWidget):
+    """One existing link in the dialog: kind dot + label + remove button."""
+
+    remove_clicked = Signal(object)  # the neighbour EntityRef
+
+    def __init__(self, ref, label: str, dangling: bool, parent=None):
+        super().__init__(parent)
+        self._ref = ref
+        h = QHBoxLayout(self)
+        h.setContentsMargins(2, 2, 2, 2)
+        h.setSpacing(8)
+        h.addWidget(_KindDot(ref.kind))
+        text = QLabel(label)
+        text.setObjectName("linkRowDangling" if dangling else "linkRowLabel")
+        h.addWidget(text, 1)
+        kind_tag = QLabel(KIND_LABEL.get(ref.kind, ref.kind))
+        kind_tag.setObjectName("linkRowKind")
+        h.addWidget(kind_tag)
+        rm = QPushButton("×")
+        rm.setObjectName("iconButton")
+        rm.setFixedSize(24, 24)
+        rm.setCursor(Qt.CursorShape.PointingHandCursor)
+        rm.setToolTip("Remove link")
+        rm.clicked.connect(lambda: self.remove_clicked.emit(self._ref))
+        h.addWidget(rm)
+
+
+class LinksDialog(QWidget):
+    """Manage one entity's relations: see/remove current links, add a link to
+    another entity (searched across tracked folders) or to a date."""
+
+    changed = Signal()  # after any add/remove, so the app can refresh
+
+    def __init__(self, subject_ref, subject_title, store, index, parent=None):
+        super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        from PySide6.QtWidgets import QDateEdit
+        from PySide6.QtCore import QDate, QLocale
+        self.setObjectName("linksDialog")
+        self.setMinimumWidth(440)
+        self._ref = subject_ref
+        self._store = store
+        self._index = index
+
+        v = QVBoxLayout(self)
+        v.setContentsMargins(22, 18, 22, 18)
+        v.setSpacing(12)
+
+        title = QLabel("Links")
+        title.setObjectName("linksTitle")
+        v.addWidget(title)
+        sub = QLabel(f"{KIND_LABEL.get(subject_ref.kind, subject_ref.kind)} · {subject_title}")
+        sub.setObjectName("linksSub")
+        sub.setWordWrap(True)
+        v.addWidget(sub)
+
+        # Current links.
+        self._links_box = QVBoxLayout()
+        self._links_box.setSpacing(2)
+        v.addLayout(self._links_box)
+
+        # Add by searching entities.
+        add_lbl = QLabel("Add a link")
+        add_lbl.setObjectName("linksSectionLabel")
+        v.addWidget(add_lbl)
+        self._search = QLineEdit()
+        self._search.setObjectName("linksSearch")
+        self._search.setPlaceholderText("Search projects, playlists, todos…")
+        self._search.textChanged.connect(self._on_search)
+        v.addWidget(self._search)
+        self._results = QListWidget()
+        self._results.setObjectName("linksResults")
+        self._results.setMaximumHeight(150)
+        self._results.itemActivated.connect(self._add_from_result)
+        self._results.itemClicked.connect(self._add_from_result)
+        self._results.setVisible(False)
+        v.addWidget(self._results)
+
+        # Add a date link.
+        date_row = QHBoxLayout()
+        date_row.setSpacing(8)
+        en = QLocale(QLocale.Language.English)
+        self._date = QDateEdit()
+        self._date.setObjectName("scheduleDate")
+        self._date.setLocale(en)
+        self._date.setCalendarPopup(True)
+        self._date.setDisplayFormat("ddd, MMM d yyyy")
+        self._date.setDate(QDate.currentDate())
+        cw = self._date.calendarWidget()
+        if cw is not None:
+            cw.setLocale(en)
+        date_row.addWidget(self._date, 1)
+        add_date = QPushButton("Link date")
+        add_date.setObjectName("linksAddDate")
+        add_date.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_date.clicked.connect(self._add_date)
+        date_row.addWidget(add_date)
+        v.addLayout(date_row)
+
+        close = QPushButton("Close")
+        close.setObjectName("scheduleCancel")
+        close.setCursor(Qt.CursorShape.PointingHandCursor)
+        close.clicked.connect(self.close)
+        v.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
+
+        self._refresh_links()
+
+    # ── current links ──
+    def _label(self, ref) -> tuple[str, bool]:
+        if ref.is_date:
+            return _format_date_iso(ref.key), False
+        info = self._index.get(ref)
+        if info is not None:
+            return info.title, False
+        return "(unavailable)", True
+
+    def _refresh_links(self) -> None:
+        while self._links_box.count():
+            w = self._links_box.takeAt(0).widget()
+            if w is not None:
+                w.deleteLater()
+        neighbors = self._store.neighbors(self._ref)
+        if not neighbors:
+            empty = QLabel("No links yet.")
+            empty.setObjectName("linksEmpty")
+            self._links_box.addWidget(empty)
+            return
+        for other in neighbors:
+            label, dangling = self._label(other)
+            row = _LinkRow(other, label, dangling)
+            row.remove_clicked.connect(self._remove)
+            self._links_box.addWidget(row)
+
+    def _remove(self, other) -> None:
+        if self._store.remove(self._ref, other):
+            self.changed.emit()
+            self._refresh_links()
+            self._on_search(self._search.text())  # removed item can resurface
+
+    # ── add ──
+    def _on_search(self, text: str) -> None:
+        text = text.strip().casefold()
+        self._results.clear()
+        if not text:
+            self._results.setVisible(False)
+            return
+        linked = set(self._store.neighbors(self._ref))
+        matches = []
+        for ref, info in self._index.items():
+            if ref == self._ref or ref in linked:
+                continue
+            if text in info.title.casefold() or text in info.kind:
+                matches.append((info.title, ref))
+        matches.sort(key=lambda m: m[0].casefold())
+        for title, ref in matches[:40]:
+            it = QListWidgetItem(f"{title}   ·   {KIND_LABEL.get(ref.kind, ref.kind)}")
+            it.setData(Qt.ItemDataRole.UserRole, ref)
+            self._results.addItem(it)
+        self._results.setVisible(self._results.count() > 0)
+
+    def _add_from_result(self, item) -> None:
+        ref = item.data(Qt.ItemDataRole.UserRole)
+        if ref is not None and self._store.add(self._ref, ref):
+            self.changed.emit()
+            self._refresh_links()
+            self._search.clear()
+
+    def _add_date(self) -> None:
+        iso = self._date.date().toString(Qt.DateFormat.ISODate)
+        if self._store.add(self._ref, links_mod.date_ref(iso)):
+            self.changed.emit()
+            self._refresh_links()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:
