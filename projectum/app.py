@@ -3274,6 +3274,7 @@ class MainWindow(QMainWindow):
         dlg = LinksDialog(ref, title, self._link_store, index, parent=self)
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dlg.changed.connect(self._on_links_changed)
+        dlg.navigate.connect(self._navigate_to)
         dlg.destroyed.connect(
             lambda *_a, d=dlg: self._forget_if_current("_links_dialog", d)
         )
@@ -3289,6 +3290,47 @@ class MainWindow(QMainWindow):
         # Date-link awareness in the calendar arrives in a later pass; nothing
         # else to refresh for now.
         pass
+
+    def _navigate_to(self, ref) -> None:
+        """Open/reveal a linked entity — switching folders and tabs as needed."""
+        if ref.is_date:
+            self._goto_tab("calendar")
+            d = cal.parse_date(ref.key)
+            if d is not None:
+                self.calendar_view.set_month(d.year, d.month)
+            return
+        # Cross-folder: open the entity's folder first (lists rebuild synchronously).
+        same = (self.store is not None
+                and cal.resolved_path(str(self.store.root)) == cal.resolved_path(ref.home))
+        if not same:
+            if not Path(ref.home).is_dir():
+                QMessageBox.information(
+                    self, "Projectum",
+                    "That item's folder isn't available right now.")
+                return
+            self.load_folder(Path(ref.home))
+        if ref.kind == "project":
+            self._goto_tab("projects")
+            item = self._row_items.get(ref.key)
+            if item is not None:
+                self.list_widget.setCurrentItem(item)
+                self.list_widget.scrollToItem(item)
+        elif ref.kind == "playlist":
+            self._goto_tab("playlists")
+            item = self._playlist_items.get(ref.key)
+            if item is not None:
+                self.playlists_list_widget.setCurrentItem(item)
+                self.playlists_list_widget.scrollToItem(item)
+        elif ref.kind == "todo":
+            self._goto_tab("todos")
+            item = self._todo_items.get(ref.key)
+            if item is not None:
+                self.todo_list_widget.setCurrentItem(item)
+                self.todo_list_widget.scrollToItem(item)
+        elif ref.kind == "note":
+            self._goto_tab("notes")
+        else:
+            self._goto_tab("projects")
 
     def _prune_links_for(self, kind: str, key: str) -> None:
         """Drop a deleted entity's edges from the graph (explicit deletion)."""

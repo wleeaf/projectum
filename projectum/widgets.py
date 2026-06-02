@@ -2972,15 +2972,22 @@ def _format_date_iso(iso: str) -> str:
 
 
 class _LinkRow(QWidget):
-    """One existing link in the dialog: kind dot + label + remove button."""
+    """One existing link: kind dot + label + remove button. Clicking the row
+    (anywhere but the ×) opens/navigates to that entity, when resolvable."""
 
     remove_clicked = Signal(object)  # the neighbour EntityRef
+    open_clicked = Signal(object)
 
-    def __init__(self, ref, label: str, dangling: bool, parent=None):
+    def __init__(self, ref, label: str, dangling: bool, openable: bool, parent=None):
         super().__init__(parent)
         self._ref = ref
+        self._openable = openable
+        self.setObjectName("linkRow")
+        if openable:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setToolTip("Open")
         h = QHBoxLayout(self)
-        h.setContentsMargins(2, 2, 2, 2)
+        h.setContentsMargins(6, 3, 4, 3)
         h.setSpacing(8)
         h.addWidget(_KindDot(ref.kind))
         text = QLabel(label)
@@ -2997,12 +3004,20 @@ class _LinkRow(QWidget):
         rm.clicked.connect(lambda: self.remove_clicked.emit(self._ref))
         h.addWidget(rm)
 
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if self._openable and event.button() == Qt.MouseButton.LeftButton:
+            self.open_clicked.emit(self._ref)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
 
 class LinksDialog(QWidget):
     """Manage one entity's relations: see/remove current links, add a link to
     another entity (searched across tracked folders) or to a date."""
 
-    changed = Signal()  # after any add/remove, so the app can refresh
+    changed = Signal()           # after any add/remove, so the app can refresh
+    navigate = Signal(object)    # open/navigate to a linked EntityRef
 
     def __init__(self, subject_ref, subject_title, store, index, parent=None):
         super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
@@ -3026,12 +3041,29 @@ class LinksDialog(QWidget):
         sub.setWordWrap(True)
         v.addWidget(sub)
 
-        # Current links.
-        self._links_box = QVBoxLayout()
+        # Current links — fixed-height scroll so the layout never reflows.
+        linked_lbl = QLabel("Linked")
+        linked_lbl.setObjectName("linksSectionLabel")
+        v.addWidget(linked_lbl)
+        self._links_scroll = QScrollArea()
+        self._links_scroll.setObjectName("linksScroll")
+        self._links_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._links_scroll.setWidgetResizable(True)
+        self._links_scroll.setFixedHeight(128)
+        self._links_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._links_scroll.viewport().setStyleSheet("background: transparent;")
+        links_inner = QWidget()
+        links_inner.setStyleSheet("background: transparent;")
+        self._links_box = QVBoxLayout(links_inner)
+        self._links_box.setContentsMargins(0, 0, 0, 0)
         self._links_box.setSpacing(2)
-        v.addLayout(self._links_box)
+        self._links_box.addStretch(1)
+        self._links_scroll.setWidget(links_inner)
+        v.addWidget(self._links_scroll)
 
-        # Add by searching entities.
+        # Add by searching entities — results are always visible (fixed height)
+        # so showing/hiding them can't move the search box.
         add_lbl = QLabel("Add a link")
         add_lbl.setObjectName("linksSectionLabel")
         v.addWidget(add_lbl)
@@ -3042,10 +3074,9 @@ class LinksDialog(QWidget):
         v.addWidget(self._search)
         self._results = QListWidget()
         self._results.setObjectName("linksResults")
-        self._results.setMaximumHeight(150)
+        self._results.setFixedHeight(150)
         self._results.itemActivated.connect(self._add_from_result)
         self._results.itemClicked.connect(self._add_from_result)
-        self._results.setVisible(False)
         v.addWidget(self._results)
 
         # Add a date link.
@@ -3076,6 +3107,7 @@ class LinksDialog(QWidget):
         v.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
 
         self._refresh_links()
+        self._on_search("")  # populate the browse list up front
 
     # ── current links ──
     def _label(self, ref) -> tuple[str, bool]:
@@ -3087,7 +3119,7 @@ class LinksDialog(QWidget):
         return "(unavailable)", True
 
     def _refresh_links(self) -> None:
-        while self._links_box.count():
+        while self._links_box.count() > 1:   # keep the trailing stretch
             w = self._links_box.takeAt(0).widget()
             if w is not None:
                 w.deleteLater()
@@ -3095,13 +3127,18 @@ class LinksDialog(QWidget):
         if not neighbors:
             empty = QLabel("No links yet.")
             empty.setObjectName("linksEmpty")
-            self._links_box.addWidget(empty)
+            self._links_box.insertWidget(0, empty)
             return
         for other in neighbors:
             label, dangling = self._label(other)
-            row = _LinkRow(other, label, dangling)
+            row = _LinkRow(other, label, dangling, openable=not dangling)
             row.remove_clicked.connect(self._remove)
-            self._links_box.addWidget(row)
+            row.open_clicked.connect(self._open)
+            self._links_box.insertWidget(self._links_box.count() - 1, row)
+
+    def _open(self, other) -> None:
+        self.navigate.emit(other)
+        self.close()
 
     def _remove(self, other) -> None:
         if self._store.remove(self._ref, other):
@@ -3111,24 +3148,22 @@ class LinksDialog(QWidget):
 
     # ── add ──
     def _on_search(self, text: str) -> None:
+        # Always-on browse/filter list (empty query shows all candidates), so the
+        # results area never appears/disappears and never shifts the search box.
         text = text.strip().casefold()
         self._results.clear()
-        if not text:
-            self._results.setVisible(False)
-            return
         linked = set(self._store.neighbors(self._ref))
         matches = []
         for ref, info in self._index.items():
             if ref == self._ref or ref in linked:
                 continue
-            if text in info.title.casefold() or text in info.kind:
+            if not text or text in info.title.casefold() or text in info.kind:
                 matches.append((info.title, ref))
         matches.sort(key=lambda m: m[0].casefold())
-        for title, ref in matches[:40]:
+        for title, ref in matches[:60]:
             it = QListWidgetItem(f"{title}   ·   {KIND_LABEL.get(ref.kind, ref.kind)}")
             it.setData(Qt.ItemDataRole.UserRole, ref)
             self._results.addItem(it)
-        self._results.setVisible(self._results.count() > 0)
 
     def _add_from_result(self, item) -> None:
         ref = item.data(Qt.ItemDataRole.UserRole)

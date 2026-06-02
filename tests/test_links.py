@@ -120,6 +120,33 @@ def test_open_links_dialog_indexes_cross_folder(window, qapp, tmp_path):
     window._links_dialog.close()
 
 
+def test_links_dialog_open_emits_navigate(qapp, tmp_path):
+    from projectum.widgets import LinksDialog
+    store = LinkStore(tmp_path / "l.json")
+    subj = make_ref("todo", "/r/A", "u1")
+    other = make_ref("project", "/r/A", "alpha")
+    store.add(subj, other)
+    dlg = LinksDialog(subj, "T", store, index_entities([("/r/A", "project", "alpha", "Alpha")]))
+    got = []
+    dlg.navigate.connect(lambda r: got.append(r))
+    dlg._open(other)
+    assert got == [other]
+
+
+def test_navigate_to_cross_folder(window, qapp, tmp_path):
+    fa = tmp_path / "A"; fa.mkdir(); (fa / "alpha").mkdir()
+    fb = tmp_path / "B"; fb.mkdir(); (fb / "beta").mkdir()
+    ProjectStore(fa).save(); ProjectStore(fb).save()
+    from projectum.app import load_state, save_state
+    st = load_state(); st["recent_folders"] = [str(fa), str(fb)]; save_state(st)
+    window.load_folder(fa)
+    assert window.store.root.name == "A"
+    window._navigate_to(make_ref("project", str(fb), "beta"))   # project in the OTHER folder
+    qapp.processEvents()
+    assert window.store.root.name == "B"        # switched folders
+    assert window.current_tab == "projects"
+
+
 def test_prune_links_on_todo_delete(window, qapp, tmp_path):
     fa = tmp_path / "work"; fa.mkdir()
     s = ProjectStore(fa); todo = s.add_todo("doomed"); s.save()
