@@ -1163,6 +1163,33 @@ QPushButton#iconButton {{
 QPushButton#iconButton:hover {{
     background-color: {SURFACE_2};
 }}
+
+QWidget#updateBanner {{
+    background-color: {SURFACE_2};
+    border-bottom: 2px solid {ACCENT};
+}}
+
+QLabel#updateBannerText {{
+    color: {TEXT};
+    font-size: {max(size - 1, 11)}px;
+    font-weight: 600;
+    background: transparent;
+}}
+
+QPushButton#updateBannerButton {{
+    background-color: {ACCENT};
+    color: {BG};
+    border: 1px solid {ACCENT};
+    border-radius: 7px;
+    padding: 5px 14px;
+    font-size: {max(size - 1, 11)}px;
+    font-weight: 600;
+}}
+
+QPushButton#updateBannerButton:hover {{
+    background-color: {ACCENT_HOVER};
+    border-color: {ACCENT_HOVER};
+}}
 """
 
 

@@ -923,6 +923,7 @@ class SettingsDialog(QWidget):
         current_theme: str,
         current_font_family: str,
         current_font_size: int,
+        current_check_updates: bool = True,
         parent: QWidget | None = None,
     ):
         super().__init__(
@@ -931,13 +932,17 @@ class SettingsDialog(QWidget):
         )
         self.setObjectName("settingsDialog")
         self.setMinimumWidth(440)
-        self._build(current_theme, current_font_family, current_font_size)
+        self._build(
+            current_theme, current_font_family, current_font_size,
+            current_check_updates,
+        )
         # Baseline for the dirty check, taken from the actual control values so
         # Qt's normalization (e.g. of a font family) doesn't read as a change.
         self._applied = self._current_selection()
         self.theme_combo.currentIndexChanged.connect(self._refresh_apply_enabled)
         self.font_combo.currentFontChanged.connect(self._refresh_apply_enabled)
         self.size_combo.currentIndexChanged.connect(self._refresh_apply_enabled)
+        self.update_check.toggled.connect(self._refresh_apply_enabled)
         self._refresh_apply_enabled()
 
     @staticmethod
@@ -961,8 +966,9 @@ class SettingsDialog(QWidget):
         current_theme: str,
         current_font_family: str,
         current_font_size: int,
+        current_check_updates: bool,
     ) -> None:
-        from PySide6.QtWidgets import QComboBox, QFontComboBox, QFrame
+        from PySide6.QtWidgets import QCheckBox, QComboBox, QFontComboBox, QFrame
         from PySide6.QtGui import QFont
         from .theme import (
             DEFAULT_FONT_FAMILY, FONT_SIZE_MAX, FONT_SIZE_MIN, THEMES, THEME_LABELS,
@@ -1033,6 +1039,14 @@ class SettingsDialog(QWidget):
         self.size_combo.setCurrentIndex(sizes.index(cur))
         v.addWidget(self.size_combo)
 
+        # ── Updates ──
+        v.addSpacing(4)
+        self.update_check = QCheckBox("Check for updates on launch")
+        self.update_check.setObjectName("settingsField")
+        self.update_check.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update_check.setChecked(bool(current_check_updates))
+        v.addWidget(self.update_check)
+
         v.addStretch(1)
 
         hint = QLabel("Choose your settings, then click Apply.")
@@ -1074,6 +1088,7 @@ class SettingsDialog(QWidget):
             "theme": theme_key,
             "font_family": self.font_combo.currentFont().family(),
             "font_size": int(self.size_combo.currentData()),
+            "check_updates": self.update_check.isChecked(),
         }
 
     def _refresh_apply_enabled(self, *_args) -> None:
@@ -2051,3 +2066,43 @@ class TodoRow(QWidget):
         self.toggle.setChecked(done)
         self.toggle.blockSignals(False)
         self._restyle()
+
+
+# ──────────────── Update banner ────────────────
+
+
+class UpdateBanner(QWidget):
+    """A thin, dismissible bar shown when a newer release is available."""
+
+    download_clicked = Signal()
+    dismissed = Signal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("updateBanner")
+        self.setVisible(False)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(16, 7, 10, 7)
+        h.setSpacing(10)
+
+        self.label = QLabel("")
+        self.label.setObjectName("updateBannerText")
+        h.addWidget(self.label, 1)
+
+        self.download_btn = QPushButton("Download")
+        self.download_btn.setObjectName("updateBannerButton")
+        self.download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.download_btn.clicked.connect(self.download_clicked.emit)
+        h.addWidget(self.download_btn)
+
+        self.dismiss_btn = QPushButton("×")
+        self.dismiss_btn.setObjectName("iconButton")
+        self.dismiss_btn.setFixedSize(26, 26)
+        self.dismiss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.dismiss_btn.setToolTip("Dismiss")
+        self.dismiss_btn.clicked.connect(self.dismissed.emit)
+        h.addWidget(self.dismiss_btn)
+
+    def show_update(self, version: str) -> None:
+        self.label.setText(f"Projectum {version} is available.")
+        self.setVisible(True)

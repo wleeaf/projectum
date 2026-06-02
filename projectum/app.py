@@ -37,9 +37,11 @@ from .widgets import (
     BrandMark, ColorPickerPopup, CommandPalette, CompletionToggle, FlowLayout,
     FrameWrapper, GitRunnable, IconButton, MarkdownHighlighter, PlaylistRow,
     ProjectRow, SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar,
-    TodoRow, VideoRow, WindowControlButton,
+    TodoRow, UpdateBanner, VideoRow, WindowControlButton,
 )
 from .youtube import PlaylistFetchRunnable
+from .update import UpdateCheckRunnable
+from . import __version__ as APP_VERSION
 
 
 class FocusManager(QObject):
@@ -212,6 +214,9 @@ class MainWindow(QMainWindow):
         # the settings dialog inherit. Theme changes call apply_app_styling.
         self._bind_shortcuts()
 
+        # Check for a newer release shortly after launch (off-thread, opt-out).
+        QTimer.singleShot(2500, self._maybe_check_updates)
+
     # ─── UI construction ─────────────────────────────────────────
 
     def _build_ui(self) -> None:
@@ -225,6 +230,14 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
 
         layout.addWidget(self._build_top_bar())
+
+        # Update banner (hidden until a newer release is found).
+        self._update_banner = UpdateBanner()
+        self._update_banner.download_clicked.connect(self._open_update_url)
+        self._update_banner.dismissed.connect(self._dismiss_update)
+        self._update_url = ""
+        self._update_version = ""
+        layout.addWidget(self._update_banner)
 
         self.stack = QStackedWidget()
         layout.addWidget(self.stack, 1)
@@ -3034,10 +3047,15 @@ class MainWindow(QMainWindow):
             self._settings_dialog.raise_()
             self._settings_dialog.activateWindow()
             return
+        settings = load_state().get("settings")
+        check_updates = (
+            settings.get("check_updates", True) if isinstance(settings, dict) else True
+        )
         dialog = SettingsDialog(
             theme.current_theme_name(),
             theme.current_font_family(),
             theme.current_font_size(),
+            current_check_updates=check_updates,
             parent=self,
         )
         # Destroy on close so dialogs don't pile up as live children.
@@ -3065,6 +3083,35 @@ class MainWindow(QMainWindow):
     def _on_settings_closed(self, *_args) -> None:
         self._settings_dialog = None
 
+    # ─── Update check ────────────────────────────────────────────
+
+    def _maybe_check_updates(self) -> None:
+        settings = load_state().get("settings")
+        if isinstance(settings, dict) and not settings.get("check_updates", True):
+            return  # opted out
+        runnable = UpdateCheckRunnable(APP_VERSION)
+        runnable.signals.update_available.connect(self._on_update_available)
+        self._size_pool.start(runnable)
+
+    def _on_update_available(self, version: str, url: str) -> None:
+        # Respect a per-version dismissal so we don't nag about the same one.
+        if load_state().get("update_dismissed") == version:
+            return
+        self._update_version = version
+        self._update_url = url
+        self._update_banner.show_update(version)
+
+    def _open_update_url(self) -> None:
+        url = self._update_url or "https://github.com/wleeaf/projectum/releases/latest"
+        QDesktopServices.openUrl(QUrl(url))
+
+    def _dismiss_update(self) -> None:
+        self._update_banner.setVisible(False)
+        if self._update_version:
+            st = load_state()
+            st["update_dismissed"] = self._update_version
+            save_state(st)
+
     def _apply_settings(self, settings: dict) -> None:
         new_theme = settings.get("theme", theme.DEFAULT_THEME)
         new_family = settings.get("font_family", theme.DEFAULT_FONT_FAMILY)
@@ -3073,6 +3120,7 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             raw_size = theme.DEFAULT_FONT_SIZE
         new_size = max(theme.FONT_SIZE_MIN, min(theme.FONT_SIZE_MAX, raw_size))
+        check_updates = bool(settings.get("check_updates", True))
         theme_changed = new_theme != theme.current_theme_name()
 
         # A theme swap restyles the whole window at once; crossfade the old
@@ -3081,13 +3129,17 @@ class MainWindow(QMainWindow):
         if theme_changed:
             cross_fade_swap(
                 self._frame_wrapper,
-                lambda: self._apply_settings_now(new_theme, new_family, new_size),
+                lambda: self._apply_settings_now(
+                    new_theme, new_family, new_size, check_updates
+                ),
                 duration=260,
             )
         else:
-            self._apply_settings_now(new_theme, new_family, new_size)
+            self._apply_settings_now(new_theme, new_family, new_size, check_updates)
 
-    def _apply_settings_now(self, new_theme: str, new_family: str, new_size: int) -> None:
+    def _apply_settings_now(
+        self, new_theme: str, new_family: str, new_size: int, check_updates: bool = True
+    ) -> None:
         theme.apply_theme(new_theme)
         theme.apply_font(family=new_family, size=new_size)
 
@@ -3154,6 +3206,7 @@ class MainWindow(QMainWindow):
             "theme": new_theme,
             "font_family": new_family,
             "font_size": new_size,
+            "check_updates": check_updates,
         }
         save_state(cur)
 
