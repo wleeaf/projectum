@@ -245,3 +245,87 @@ def test_schedule_flow_persists_and_moves(window, qapp, tmp_path):
     window._apply_schedule(task, "", "")
     qapp.processEvents()
     assert next(t for t in ProjectStore(fa).todos if t.text == "Task A").start == ""
+
+
+# ── drag & drop ──
+
+def test_compute_preview_move_and_resize(qapp):
+    from projectum.widgets import MonthGrid
+    g = MonthGrid()
+    drag = {"mode": "move", "orig_start": date(2026, 6, 3),
+            "orig_end": date(2026, 6, 5), "press_day": date(2026, 6, 3)}
+    assert g._compute_preview(drag, date(2026, 6, 6)) == (date(2026, 6, 6), date(2026, 6, 8))
+    drag["mode"] = "resize_end"
+    assert g._compute_preview(drag, date(2026, 6, 10)) == (date(2026, 6, 3), date(2026, 6, 10))
+    drag["mode"] = "resize_start"
+    assert g._compute_preview(drag, date(2026, 6, 4)) == (date(2026, 6, 4), date(2026, 6, 5))
+    # resize can't cross the opposite end
+    assert g._compute_preview(drag, date(2026, 6, 9)) == (date(2026, 6, 5), date(2026, 6, 5))
+    g.deleteLater()
+
+
+def test_tray_drop_schedules_single_day(qapp):
+    from projectum.widgets import CalendarView
+    v = CalendarView()
+    v.set_month(2026, 6)
+    item = _si("", kind="todo", title="U")
+    v.set_items([item])
+    got = []
+    v.item_rescheduled.connect(lambda it, s, e: got.append((it, s, e)))
+    v._drag_item = item
+    v._on_external_drop(date(2026, 6, 9))
+    assert got == [(item, "2026-06-09", "2026-06-09")]
+    assert v._drag_item is None  # cleared after the drop
+    v.deleteLater()
+
+
+def test_bar_drag_move_emits_reschedule(qapp):
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from projectum.widgets import MonthGrid
+    g = MonthGrid()
+    g.resize(900, 700)
+    g.set_month(2026, 6)                       # Jun 1 is Monday -> Jun 3 is col 2
+    g.set_items([_si("2026-06-03", "2026-06-03", title="X")])
+    qapp.processEvents()
+    got = []
+    g.item_rescheduled.connect(lambda it, s, e: got.append((s, e)))
+
+    bar = g._bars[0]
+    press = g._bar_rect(bar).center()
+    ox, _oy, cw, _ch = g._geom()
+    target = QPointF(ox + 5 * cw + cw / 2, press.y())   # col 5 -> Jun 6 (+3 days)
+
+    def ev(t, pos, buttons):
+        return QMouseEvent(t, pos, Qt.MouseButton.LeftButton, buttons,
+                           Qt.KeyboardModifier.NoModifier)
+
+    g.mousePressEvent(ev(QEvent.Type.MouseButtonPress, press, Qt.MouseButton.LeftButton))
+    assert g._drag is not None and g._drag["mode"] == "move"
+    g.mouseMoveEvent(ev(QEvent.Type.MouseMove, target, Qt.MouseButton.LeftButton))
+    g.mouseReleaseEvent(ev(QEvent.Type.MouseButtonRelease, target, Qt.MouseButton.NoButton))
+    assert got == [("2026-06-06", "2026-06-06")]
+    g.deleteLater()
+
+
+def test_bar_click_without_drag_activates(qapp):
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtCore import QEvent, Qt
+    from projectum.widgets import MonthGrid
+    g = MonthGrid()
+    g.resize(900, 700)
+    g.set_month(2026, 6)
+    g.set_items([_si("2026-06-03", "2026-06-03", title="X")])
+    qapp.processEvents()
+    activated = []
+    g.item_activated.connect(lambda it: activated.append(it))
+    press = g._bar_rect(g._bars[0]).center()
+
+    def ev(t, buttons):
+        return QMouseEvent(t, press, Qt.MouseButton.LeftButton, buttons,
+                           Qt.KeyboardModifier.NoModifier)
+
+    g.mousePressEvent(ev(QEvent.Type.MouseButtonPress, Qt.MouseButton.LeftButton))
+    g.mouseReleaseEvent(ev(QEvent.Type.MouseButtonRelease, Qt.MouseButton.NoButton))
+    assert len(activated) == 1   # press+release without movement -> click (open picker)
+    g.deleteLater()

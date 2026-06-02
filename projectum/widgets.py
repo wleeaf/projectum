@@ -7,12 +7,12 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import (
-    Qt, QRect, QRectF, QPointF, QPoint, Property, Signal, QObject, QEvent,
-    QRunnable, QSize,
+    Qt, QRect, QRectF, QPointF, QPoint, QMimeData, Property, Signal, QObject,
+    QEvent, QRunnable, QSize,
 )
 from PySide6.QtGui import (
     QPainter, QColor, QBrush, QPen, QFont, QFontMetrics, QPainterPath,
-    QMouseEvent, QSyntaxHighlighter, QTextCharFormat,
+    QDrag, QMouseEvent, QSyntaxHighlighter, QTextCharFormat,
 )
 from PySide6.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QLabel,
@@ -24,6 +24,9 @@ from . import calendar as cal
 from . import theme
 from .theme import TAG_PALETTE, tag_color
 
+
+# Drag MIME marker for an unscheduled tray chip being dropped on the grid.
+SCHEDULE_MIME = "application/x-projectum-schedule"
 
 # Calendar bar color per item kind (resolved against the active theme at paint).
 KIND_COLOR_KEY = {
@@ -2188,6 +2191,8 @@ class MonthGrid(QWidget):
     day_clicked = Signal(object)       # a datetime.date
     item_activated = Signal(object)    # a ScheduledItem
     item_context = Signal(object, QPoint)  # (ScheduledItem, global pos) on right-click
+    item_rescheduled = Signal(object, str, str)  # (item, start_iso, end_iso) after drag
+    external_drop = Signal(object)     # a date — a tray chip was dropped here
 
     PAD = 8
     HEADER_H = 26
@@ -2195,6 +2200,7 @@ class MonthGrid(QWidget):
     LANE_H = 18
     LANE_GAP = 3
     BAR_PAD_X = 3
+    EDGE = 7  # px hot-zone at a bar's end for resize vs. move
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -2205,9 +2211,13 @@ class MonthGrid(QWidget):
         self._items: list = []
         self._grid_start = cal.month_grid_start(self._year, self._month)
         self._bars: list = []
+        self._drag: dict | None = None   # in-progress move/resize of a bar
+        self._press_day = None           # tentative day click
+        self._drop_day = None            # day highlighted under an external drop
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(380)
         self.setMouseTracking(True)
+        self.setAcceptDrops(True)
 
     # ── public API ──
     def set_month(self, year: int, month: int) -> None:
@@ -2261,6 +2271,35 @@ class MonthGrid(QWidget):
     def _cell_date(self, week: int, col: int) -> date:
         return self._grid_start + timedelta(days=week * 7 + col)
 
+    def _bar_rect(self, bar) -> QRectF:
+        left_cell = self._cell_rect(bar.week, bar.col_start)
+        right_cell = self._cell_rect(bar.week, bar.col_end)
+        x0 = left_cell.left() + self.BAR_PAD_X
+        x1 = right_cell.right() - self.BAR_PAD_X
+        y = left_cell.top() + self.DAY_NUM_H + bar.lane * self._lane_pitch()
+        return QRectF(x0, y, max(6.0, x1 - x0), self.LANE_H)
+
+    def _bar_at(self, pos: QPointF):
+        """The drawn bar whose rect contains ``pos`` (or None)."""
+        draw_limit = self._draw_limit(self._geom()[3])
+        for bar in self._bars:
+            if bar.lane >= draw_limit or bar.item_index >= len(self._items):
+                continue
+            if self._bar_rect(bar).contains(pos):
+                return bar
+        return None
+
+    def _day_at(self, pos: QPointF):
+        """The date of the grid cell under ``pos`` (or None if outside)."""
+        ox, oy, cw, ch = self._geom()
+        if pos.x() < ox or pos.y() < oy or cw <= 0 or ch <= 0:
+            return None
+        col = int((pos.x() - ox) // cw)
+        week = int((pos.y() - oy) // ch)
+        if not (0 <= col <= 6 and 0 <= week <= 5):
+            return None
+        return self._cell_date(week, col)
+
     # ── painting ──
     def paintEvent(self, _event) -> None:
         ox, oy, cw, ch = self._geom()
@@ -2270,6 +2309,28 @@ class MonthGrid(QWidget):
             self._paint_weekday_header(p, ox, cw)
             self._paint_cells(p, cw, ch)
             self._paint_bars(p, cw, ch)
+            if self._drag is not None and self._drag.get("preview") is not None:
+                self._paint_day_span(p, *self._drag["preview"])
+            elif self._drop_day is not None:
+                self._paint_day_span(p, self._drop_day, self._drop_day)
+
+    def _paint_day_span(self, p: QPainter, start: date, end: date) -> None:
+        """Translucent accent highlight over a [start, end] day range — the
+        live preview while dragging a bar or hovering a tray-chip drop."""
+        if start > end:
+            start, end = end, start
+        fill = QColor(theme.ACCENT)
+        fill.setAlpha(55)
+        p.setBrush(fill)
+        p.setPen(QPen(QColor(theme.ACCENT), 1.5))
+        d = start
+        while d <= end:
+            off = (d - self._grid_start).days
+            if 0 <= off < cal.GRID_DAYS:
+                week, col = divmod(off, 7)
+                cell = self._cell_rect(week, col).adjusted(1.5, 1.5, -1.5, -1.5)
+                p.drawRoundedRect(cell, 7, 7)
+            d += timedelta(days=1)
 
     def _paint_weekday_header(self, p: QPainter, ox: float, cw: float) -> None:
         f = QFont(self.font())
@@ -2335,12 +2396,7 @@ class MonthGrid(QWidget):
                     hidden[(bar.week, c)] = hidden.get((bar.week, c), 0) + 1
                 continue
             item = self._items[bar.item_index]
-            left_cell = self._cell_rect(bar.week, bar.col_start)
-            right_cell = self._cell_rect(bar.week, bar.col_end)
-            x0 = left_cell.left() + self.BAR_PAD_X
-            x1 = right_cell.right() - self.BAR_PAD_X
-            y = left_cell.top() + self.DAY_NUM_H + bar.lane * pitch
-            rect = QRectF(x0, y, max(6.0, x1 - x0), self.LANE_H)
+            rect = self._bar_rect(bar)
 
             fill = QColor(getattr(theme, KIND_COLOR_KEY.get(item.kind, "ACCENT"), theme.ACCENT))
             if item.done:
@@ -2406,47 +2462,125 @@ class MonthGrid(QWidget):
                 path = path.united(tri)
         p.drawPath(path)
 
-    # ── interaction ──
-    def _hit(self, pos: QPointF):
-        """Return ('item', ScheduledItem) or ('day', date) or None for a point."""
-        ox, oy, cw, ch = self._geom()
-        if pos.x() < ox or pos.y() < oy or cw <= 0 or ch <= 0:
-            return None
-        col = int((pos.x() - ox) // cw)
-        week = int((pos.y() - oy) // ch)
-        if not (0 <= col <= 6 and 0 <= week <= 5):
-            return None
-        cell = self._cell_rect(week, col)
-        local_y = pos.y() - cell.top()
-        draw_limit = self._draw_limit(ch)
-        if local_y >= self.DAY_NUM_H:
-            lane = int((local_y - self.DAY_NUM_H) // self._lane_pitch())
-            if 0 <= lane < draw_limit:
-                for bar in self._bars:
-                    if (bar.week == week and bar.lane == lane
-                            and bar.col_start <= col <= bar.col_end
-                            and bar.item_index < len(self._items)):
-                        return ("item", self._items[bar.item_index])
-        return ("day", self._cell_date(week, col))
+    # ── interaction (click, plus drag to move / resize bars) ──
+    def _compute_preview(self, drag: dict, day: date) -> tuple[date, date]:
+        mode, s, e = drag["mode"], drag["orig_start"], drag["orig_end"]
+        if mode == "resize_start":
+            return (min(day, e), e)
+        if mode == "resize_end":
+            return (s, max(day, s))
+        delta = (day - drag["press_day"]).days  # move: shift, keep duration
+        return (s + timedelta(days=delta), e + timedelta(days=delta))
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        pos = event.position()
         if event.button() == Qt.MouseButton.LeftButton:
-            hit = self._hit(event.position())
-            if hit and hit[0] == "item":
-                self.item_activated.emit(hit[1])
-                event.accept()
-                return
-            if hit and hit[0] == "day":
-                self.day_clicked.emit(hit[1])
+            bar = self._bar_at(pos)
+            if bar is not None:
+                item = self._items[bar.item_index]
+                rect = self._bar_rect(bar)
+                mode = "move"
+                if not bar.continues_left and pos.x() - rect.left() <= self.EDGE:
+                    mode = "resize_start"
+                elif not bar.continues_right and rect.right() - pos.x() <= self.EDGE:
+                    mode = "resize_end"
+                s = cal.parse_date(item.start)
+                if s is not None:
+                    self._drag = {
+                        "item": item, "mode": mode, "press": pos,
+                        "press_day": self._day_at(pos) or s,
+                        "orig_start": s, "orig_end": cal.parse_date(item.end) or s,
+                        "preview": None, "started": False,
+                    }
+                    if mode != "move":
+                        self.setCursor(Qt.CursorShape.SizeHorCursor)
+                    event.accept()
+                    return
+            day = self._day_at(pos)
+            if day is not None:
+                self._press_day = day
                 event.accept()
                 return
         elif event.button() == Qt.MouseButton.RightButton:
-            hit = self._hit(event.position())
-            if hit and hit[0] == "item":
-                self.item_context.emit(hit[1], event.globalPosition().toPoint())
+            bar = self._bar_at(pos)
+            if bar is not None:
+                self.item_context.emit(self._items[bar.item_index],
+                                       event.globalPosition().toPoint())
                 event.accept()
                 return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._drag is not None and (event.buttons() & Qt.MouseButton.LeftButton):
+            pos = event.position()
+            if not self._drag["started"]:
+                if (pos - self._drag["press"]).manhattanLength() < \
+                        QApplication.startDragDistance():
+                    return
+                self._drag["started"] = True
+            day = self._day_at(pos)
+            if day is not None:
+                self._drag["preview"] = self._compute_preview(self._drag, day)
+                self.update()
+            event.accept()
+            return
+        # Hover feedback: resize cursor near a bar's draggable end.
+        if not self._drag:
+            bar = self._bar_at(event.position())
+            cur = Qt.CursorShape.ArrowCursor
+            if bar is not None:
+                rect = self._bar_rect(bar)
+                x = event.position().x()
+                if (not bar.continues_left and x - rect.left() <= self.EDGE) or \
+                        (not bar.continues_right and rect.right() - x <= self.EDGE):
+                    cur = Qt.CursorShape.SizeHorCursor
+                else:
+                    cur = Qt.CursorShape.PointingHandCursor
+            self.setCursor(cur)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        self.unsetCursor()
+        if self._drag is not None:
+            drag, self._drag = self._drag, None
+            if drag["started"] and drag["preview"] is not None:
+                ns, ne = drag["preview"]
+                self.item_rescheduled.emit(drag["item"], ns.isoformat(), ne.isoformat())
+            else:
+                self.item_activated.emit(drag["item"])  # no movement -> click
+            self.update()
+            event.accept()
+            return
+        if self._press_day is not None:
+            day, self._press_day = self._press_day, None
+            self.day_clicked.emit(day)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    # ── drag-and-drop from the Unscheduled tray ──
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasFormat(SCHEDULE_MIME):
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event) -> None:
+        if event.mimeData().hasFormat(SCHEDULE_MIME):
+            self._drop_day = self._day_at(event.position())
+            self.update()
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event) -> None:
+        self._drop_day = None
+        self.update()
+
+    def dropEvent(self, event) -> None:
+        if event.mimeData().hasFormat(SCHEDULE_MIME):
+            day = self._day_at(event.position())
+            self._drop_day = None
+            self.update()
+            if day is not None:
+                self.external_drop.emit(day)
+            event.acceptProposedAction()
 
 
 class _TrayChip(QWidget):
@@ -2460,8 +2594,9 @@ class _TrayChip(QWidget):
         self.item = item
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(28)
-        self.setToolTip(f"{item.title}  ·  {item.home_name}")
+        self.setToolTip(f"{item.title}  ·  {item.home_name}  —  drag onto a day, or click")
         self._press_pos: QPoint | None = None
+        self._view = None  # set by CalendarView so a drag can stash the item
 
     def _color(self) -> str:
         return getattr(theme, KIND_COLOR_KEY.get(self.item.kind, "ACCENT"), theme.ACCENT)
@@ -2497,13 +2632,38 @@ class _TrayChip(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self.activated.emit(self.item)
+            self._press_pos = event.position().toPoint()
             event.accept()
         elif event.button() == Qt.MouseButton.RightButton:
             self.context.emit(self.item, event.globalPosition().toPoint())
             event.accept()
         else:
             super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if not (event.buttons() & Qt.MouseButton.LeftButton) or self._press_pos is None:
+            return
+        if (event.position().toPoint() - self._press_pos).manhattanLength() < \
+                QApplication.startDragDistance():
+            return
+        if self._view is not None:
+            self._view._drag_item = self.item
+        self._press_pos = None
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(SCHEDULE_MIME, b"1")
+        drag.setMimeData(mime)
+        drag.setPixmap(self.grab())
+        drag.setHotSpot(event.position().toPoint())
+        drag.exec(Qt.DropAction.MoveAction)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._press_pos is not None:
+            self._press_pos = None
+            self.activated.emit(self.item)  # click without a drag -> open picker
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
 
 class CalendarView(QWidget):
@@ -2513,10 +2673,12 @@ class CalendarView(QWidget):
     day_clicked = Signal(object)
     item_activated = Signal(object)
     item_context = Signal(object, QPoint)
+    item_rescheduled = Signal(object, str, str)  # (item, start_iso, end_iso)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("calendarView")
+        self._drag_item = None  # the tray item currently being dragged onto the grid
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 14)
         root.setSpacing(10)
@@ -2562,6 +2724,8 @@ class CalendarView(QWidget):
         self.grid.day_clicked.connect(self.day_clicked.emit)
         self.grid.item_activated.connect(self.item_activated.emit)
         self.grid.item_context.connect(self.item_context.emit)
+        self.grid.item_rescheduled.connect(self.item_rescheduled.emit)
+        self.grid.external_drop.connect(self._on_external_drop)
         root.addWidget(self.grid, 1)
 
         self._build_tray(root)
@@ -2619,11 +2783,18 @@ class CalendarView(QWidget):
                 w.deleteLater()
         for it in unscheduled:
             chip = _TrayChip(it)
+            chip._view = self
             chip.activated.connect(self.item_activated.emit)
             chip.context.connect(self.item_context.emit)
             self._tray_row.insertWidget(self._tray_row.count() - 1, chip)
         self._tray_label.setText(f"Unscheduled · {len(unscheduled)}")
         self._tray.setVisible(bool(unscheduled))
+
+    def _on_external_drop(self, day) -> None:
+        item, self._drag_item = self._drag_item, None
+        if item is not None:
+            iso = day.isoformat()
+            self.item_rescheduled.emit(item, iso, iso)
 
     def set_month(self, year: int, month: int) -> None:
         self.grid.set_month(year, month)

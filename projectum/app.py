@@ -412,6 +412,7 @@ class MainWindow(QMainWindow):
         view = CalendarView()
         view.item_activated.connect(self._open_schedule_dialog)
         view.item_context.connect(self._on_calendar_item_context)
+        view.item_rescheduled.connect(self._apply_schedule)  # drag move/resize/drop
         return view
 
     def _build_tab_bar(self) -> QWidget:
