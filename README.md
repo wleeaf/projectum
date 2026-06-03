@@ -2,17 +2,19 @@
 
 # Projectum
 
-**A keyboard-first desktop tracker for the projects, playlists, tasks, and notes that live in a folder on your disk.**
+Keep track of the things that pile up around a folder of work: the projects, the
+YouTube playlists you're learning from, the loose to-dos, the notes. Connect any
+of them to each other, or to a day on the calendar.
 
 [![CI](https://github.com/wleeaf/projectum/actions/workflows/ci.yml/badge.svg)](https://github.com/wleeaf/projectum/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/wleeaf/projectum?sort=semver)](https://github.com/wleeaf/projectum/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/wleeaf/projectum/total)](https://github.com/wleeaf/projectum/releases)
+[![PyPI](https://img.shields.io/pypi/v/projectum?logo=pypi&logoColor=white&label=PyPI)](https://pypi.org/project/projectum/)
+[![GitHub downloads](https://img.shields.io/github/downloads/wleeaf/projectum/total?label=release%20downloads)](https://github.com/wleeaf/projectum/releases)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-[![PySide6](https://img.shields.io/badge/PySide6-Qt%206-41cd52.svg)](https://doc.qt.io/qtforpython/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Sponsor](https://img.shields.io/github/sponsors/wleeaf?label=Sponsor&logo=githubsponsors&logoColor=white&color=ea4aaa)](https://github.com/sponsors/wleeaf)
 
-No servers. No accounts. No telemetry. Your data is one JSON file next to your work.
+No servers, no account, no telemetry. Your per-folder data is one JSON file sitting next to your work.
 
 ![Projectum — projects view](docs/screenshots/01-projects.png)
 
@@ -22,15 +24,24 @@ No servers. No accounts. No telemetry. Your data is one JSON file next to your w
 
 ## What it is
 
-Point Projectum at a folder and **every subfolder becomes a project** you can mark *done* and *tested*, tag with colors, annotate with live‑rendered Markdown, pin, and reorder. The same window tracks **YouTube playlists** — titles, durations, watched state, and per‑video notes via [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) — keeps a **to‑do list** and a **folder‑wide scratchpad**. A `Ctrl+K` command palette searches across all of it.
+Point Projectum at a folder. Every subfolder shows up as a project you can mark done or tested, tag, pin, and annotate with live-rendered Markdown. The same window holds a to-do list, a folder-wide scratchpad, and your YouTube playlists (titles, durations, watched state, per-video notes, fetched with [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)).
 
-Everything for a folder is stored in a single, human‑readable `.projectum.json` inside it — so it travels with your work, diffs cleanly in Git, and is trivial to back up or delete.
+That part is per-folder, and it lives in a single `.projectum.json` inside the folder, so it travels with your work and diffs cleanly in Git.
 
-## Download
+The other half is **relations**. A project, a playlist, a todo, a calendar date, a span of days, even a bare duration like "2 weeks". Any of them can link to any other. That's where the Calendar and the Graph come from: two ways of looking at the same web of connections. Relations are global, so they reach across every folder you've opened (more on where they're stored [below](#where-your-data-lives)).
 
-### Linux — AppImage (recommended)
+## Install
 
-Grab the latest self‑contained build, mark it executable, and run it. No Python, no `pip`, nothing to install.
+### pip — any platform with Python ≥ 3.10
+
+```bash
+pip install projectum
+projectum
+```
+
+### Linux — AppImage
+
+A single self-contained file. No Python, no `pip`, nothing to install; it bundles Python, Qt, PySide6, and `yt-dlp`.
 
 ```bash
 wget https://github.com/wleeaf/projectum/releases/latest/download/Projectum-x86_64.AppImage
@@ -38,123 +49,84 @@ chmod +x Projectum-x86_64.AppImage
 ./Projectum-x86_64.AppImage
 ```
 
-The AppImage bundles Python, Qt, PySide6, and `yt-dlp`, and runs on any reasonably modern x86‑64 desktop (glibc ≥ 2.17).
+Runs on any reasonably modern x86-64 desktop (glibc ≥ 2.17).
 
 ### Windows & macOS
 
-Grab `Projectum-windows-x64.exe` or `Projectum-macos.dmg` from the [latest release](https://github.com/wleeaf/projectum/releases/latest).
+Grab `Projectum-windows-x64.exe` or `Projectum-macos.dmg` from the [latest release](https://github.com/wleeaf/projectum/releases/latest). These builds aren't code-signed, so the OS will grumble on first launch:
 
-> **Note:** these builds are **unsigned**, so the OS will warn on first launch.
-> - **Windows:** SmartScreen → **More info → Run anyway**.
-> - **macOS:** right‑click the app → **Open** (or System Settings → Privacy & Security → **Open Anyway**).
->
-> If in doubt, running from source (below) avoids the warnings entirely.
+- **Windows:** SmartScreen → *More info → Run anyway*.
+- **macOS:** right-click the app → *Open* (or System Settings → Privacy & Security → *Open Anyway*).
 
-### pip (any platform with Python ≥ 3.10)
+If that bothers you, running from source avoids it entirely.
 
-```bash
-pip install projectum
-projectum
-```
-
-### From source (Linux · macOS · Windows)
-
-Requires **Python ≥ 3.10**.
+### From source
 
 ```bash
 git clone https://github.com/wleeaf/projectum.git
 cd projectum
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python main.py                     # or: python main.py ~/code
+python main.py                                        # or: python main.py ~/code
 ```
 
-Projectum remembers the last folder you opened, so later launches go straight back to it.
+It remembers the last folder you opened and goes straight back to it next time.
 
-## Features
+## Relations: connect anything to anything
 
-- **Filesystem‑backed projects.** Any folder works; each subfolder is a project. State lives in one `.projectum.json` per folder — Git‑friendly, sync‑friendly, no database.
-- **YouTube playlists with per‑video tracking.** Paste a URL, `yt-dlp` fetches the metadata, tick videos off as you watch, and keep notes per video. *Refresh* later pulls in new uploads while preserving your progress; videos removed upstream are kept and flagged.
-- **Live WYSIWYG Markdown** in every notes pane. Headings, bold/italic, inline and fenced code, lists, blockquotes, strikethrough, and links render as you type — the syntax markers stay dimmed but present, so it's still plain editable Markdown with no separate preview.
-- **A folder-scoped Todo list** — quick tasks per folder: add, check off, double‑click to edit inline, delete, and drag to reorder, with a done/total counter.
-- **Project quick-actions** — right‑click a project to open its folder, copy its path, open a terminal there, or open it in your editor (VS Code / Cursor / Zed / Sublime when on `PATH`).
-- **Git-aware** — the detail panel shows a project's current branch and whether its working tree is dirty, read off the UI thread.
-- **Recent-folders menu** — a **Recent ▾** button to jump back between the folders you track.
-- **Tags with custom colors** (right‑click any chip), an automatic cleanup that drops unused colors, and a sidebar tag filter.
-- **Done + Tested toggles** per project — a green check and a blue one; tested projects render in blue in the sidebar.
-- **Pin & drag‑to‑reorder** projects and playlists; pinned items float to the top.
-- **Command palette (`Ctrl+K`)** over projects, playlists, videos, tags, and the scratchpad, with prefix‑match ranking and type‑ahead.
-- **19 built‑in themes** spanning the spectrum — distinctive ones like **Midnight** (true‑black OLED), **Synthwave** (neon), **Ember** (warm orange‑red), **Graphite** (colorless mono) and **Paper** (crisp white) alongside Catppuccin Mocha / Latte / Macchiato, Nord, Dracula, Tokyo Night, Rosé Pine, One Dark, GitHub Dark, Everforest, Gruvbox Dark / Light, and Solarized Dark / Light. Every theme is held to a WCAG contrast bar so text stays readable, previewed by a color swatch in the picker, and crossfaded when you switch. Plus **any installed font** at any size.
-- **Frameless, animated UI** with smooth wheel scrolling, custom title bar, edge‑resize, and flicker‑free crossfade transitions.
-- **Update notifications** — a quiet banner when a newer release is out (one read-only GitHub check on launch, opt-out in Settings — no telemetry).
-- **Resilient state.** Writes are atomic; a folder that disappears (rename, `git checkout`) has its metadata preserved and restored when it returns.
+This is the part that makes Projectum more than a list of folders. Right-click almost anything — a project, a playlist, a todo — and pick **Links…**. From there you can attach it to:
 
-## Screenshots
+- **another entity** (link the `web-client` project to the `auth-service` project, or to that Rust playlist you're working through);
+- **a day** or a **date frame** (a span like June 12–16);
+- **a duration** — an unanchored "2 weeks", "3 days", for when you care about *how long* a thing takes, not *when*.
 
-|   |   |
+Links go both ways: open the playlist later and the project is sitting right there as a backlink. None of it is typed or rigid. It's just "these things are related," which tends to match how you actually keep track of work.
+
+Two views read the same graph:
+
+| | |
 |---|---|
-| **Projects** — tagged, pinned, tested<br>![Projects](docs/screenshots/01-projects.png) | **Playlists** — videos, watched count, notes<br>![Playlists](docs/screenshots/02-playlists.png) |
-| **Notes** — folder‑wide scratchpad, live Markdown<br>![Notes](docs/screenshots/03-notes-preview.png) | **Command palette** — `Ctrl+K` over everything<br>![Palette](docs/screenshots/04-command-palette.png) |
-| **Settings** — theme, font family, font size<br>![Settings](docs/screenshots/05-settings.png) | **Light theme** — same app, Catppuccin Latte<br>![Light](docs/screenshots/06-light-theme.png) |
+| **Calendar** — anything linked to a date shows up on that day; spans draw as bars. Click a day to attribute it, or drag across days for a frame.<br>![Calendar](docs/screenshots/02-calendar.png) | **Graph** — pick a node and see what it touches; click a neighbour to walk the web.<br>![Graph](docs/screenshots/03-graph.png) |
+| **Links** — the dialog behind it all: see and edit what an item connects to.<br>![Links](docs/screenshots/04-links.png) | **Playlists** — paste a URL, tick videos off, keep notes per video.<br>![Playlists](docs/screenshots/05-playlists.png) |
+| **Notes** — a folder-wide scratchpad in live Markdown.<br>![Notes](docs/screenshots/06-notes.png) | **Todo** — quick folder-scoped tasks.<br>![Todo](docs/screenshots/07-todo.png) |
+| **Settings** — theme, font, font size, update check.<br>![Settings](docs/screenshots/08-settings.png) | **Light theme** — one of nineteen.<br>![Light](docs/screenshots/09-light.png) |
 
-## Usage
+## The rest of it
 
-**Projects** — Each subfolder of the chosen root is a row. Toggle **done** (green) or **tested** (blue); tested projects show their name in blue. Tags are inline chips — right‑click to recolor, click the **×** to remove, and filter by tag from the **Tag** chip at the top of the sidebar. Drag rows to reorder, or right‑click for **Pin to top** and quick actions (**Open folder / Copy path / Open in terminal / Open in editor**). The detail panel shows the folder's size, last‑modified time, and **git branch + dirty state**; the notes editor renders Markdown live, in place.
-
-**Playlists** — **+ Add YouTube playlist** prompts for a URL; `yt-dlp` fetches the title, uploader, and every video. **Refresh** re‑syncs while keeping your watched/notes state. Tag, pin, reorder, and write per‑playlist notes; each video has its own notes pane below the list.
-
-**Todo** — A folder‑scoped task list. Type a task and press Enter to add it; tick the toggle to complete it (it strikes through), double‑click the text to edit inline, drag to reorder, and use the **×** to delete. A counter shows how many are done.
-
-**Notes** — A single, folder‑wide scratchpad with live WYSIWYG Markdown and a search bar (`↵` / `Shift+↵` to jump between matches).
-
-**Command palette** — `Ctrl+K` from anywhere. Type to filter projects, playlists, videos, tags, and the scratchpad; `↑`/`↓` to navigate, `↵` to open, `Esc` to dismiss.
-
-**Settings** — The gear icon opens dropdowns for theme (each previewed with a color swatch), font family (select-only, every family shown in its own font), and font size (preset pixels), plus a **Check for updates on launch** toggle. Changes are staged and applied only when you click **Apply**, then persist across launches.
+- **Projects from the filesystem.** Each subfolder is a project. The detail panel shows its size, last-modified time, and current git branch + whether the tree is dirty (read off the UI thread, so it never blocks). Done and tested toggles, color tags with a sidebar filter, pin-to-top, drag to reorder.
+- **Playlists with per-video tracking.** *Refresh* pulls in new uploads without losing your watched/notes state; anything removed upstream is kept and flagged rather than silently dropped.
+- **Live Markdown** everywhere there's a notes pane. Headings, bold/italic, code, lists, quotes, and links render as you type, with the markers dimmed but still editable. No preview toggle.
+- **Quick actions** on a project: open the folder, copy its path, open a terminal there, or open it in your editor (VS Code / Cursor / Zed / Sublime, if one's on your `PATH`).
+- **Command palette** (`Ctrl+K`) over projects, playlists, videos, tags, and the scratchpad — prefix-ranked, type-ahead.
+- **Nineteen themes**, dark and light, from Catppuccin and Nord and Gruvbox to a few of my own (Midnight, Synthwave, Ember, Graphite, Paper). Every one is checked against a WCAG contrast floor in CI so text stays readable, and switching crossfades instead of snapping. Any installed font, any size.
+- **Update check** — a quiet banner when a newer release exists. One read-only call to the GitHub releases API on launch, off by a toggle, and nothing is sent anywhere.
+- **Resilient by default.** Saves are atomic. Rename a project folder or switch branches and its metadata is parked safely, then restored when the folder comes back.
 
 ## Keyboard shortcuts
 
-| Shortcut          | Action                                          |
-|-------------------|-------------------------------------------------|
-| `Ctrl+K`          | Open the command palette                        |
-| `Ctrl+1` … `Ctrl+4` | Switch tab (Projects / Playlists / Todo / Notes) |
-| `Ctrl+O`          | Open a folder                                   |
-| `Ctrl+F`          | Focus the sidebar search                        |
-| `Ctrl+D`          | Toggle the selected project's *done* state      |
-| `Ctrl+T`          | Jump to Todo and start a new task               |
-| `Ctrl+N`          | Focus the project notes editor                  |
-| `Ctrl+R`          | Refresh the current folder                      |
-| `↵` / `Shift+↵`   | Next / previous match in Notes search           |
-| `Esc`             | Close a popup (color picker, settings, palette) |
+| Shortcut            | Action                                                    |
+|---------------------|-----------------------------------------------------------|
+| `Ctrl+K`            | Command palette                                           |
+| `Ctrl+1` … `Ctrl+6` | Switch tab (Projects / Playlists / Todo / Calendar / Graph / Notes) |
+| `Ctrl+O`            | Open a folder                                             |
+| `Ctrl+F`            | Focus the sidebar search                                  |
+| `Ctrl+D`            | Toggle the selected project's *done* state                |
+| `Ctrl+T`            | Jump to Todo and start a new task                         |
+| `Ctrl+N`            | Focus the project notes editor                            |
+| `Ctrl+R`            | Refresh the current folder                                |
+| `↵` / `Shift+↵`     | Next / previous match in Notes search                     |
+| `Esc`               | Close a popup                                             |
 
-## Data & storage
+## Where your data lives
 
-All state for a folder lives in `<folder>/.projectum.json` — a single JSON document holding projects, playlists, tags, notes, pins, and ordering. Commit it alongside your work or `.gitignore` it; it's yours. Writes are atomic (write‑temp‑then‑rename), so an interrupted save never corrupts the file.
+Two places, and the distinction matters:
 
-The only thing written outside your folders is `~/.config/projectum/state.json` (or `$XDG_CONFIG_HOME`), which remembers your window geometry, last‑opened folder, and theme/font settings.
+- **Per-folder state** is `<folder>/.projectum.json` — projects, playlists, tags, notes, pins, ordering. It's yours: commit it next to your work or `.gitignore` it. Writes are atomic (temp file, then rename), so an interrupted save can't corrupt it. When a folder disappears, its metadata waits in an `_orphans` bucket and comes back intact if the folder does.
+- **App + relations** live under `~/.config/projectum/` (or `$XDG_CONFIG_HOME`): `state.json` for window geometry, last folder, and theme/font; `links.json` for the relation graph.
 
-When a project folder disappears (rename, branch switch), its metadata — completion, notes, tags, pins, order — is parked in an `_orphans` bucket and restored intact if the folder reappears.
+One honest caveat: because relations can cross folders, they're stored centrally in `links.json` rather than in any one folder's file. So unlike the rest of your data, **relations don't travel with a folder** — copy a project elsewhere and the per-folder JSON comes along, but the links you drew to things in *other* folders stay behind. It's the trade-off for being able to connect anything to anything.
 
-## Project layout
-
-```
-projectum/
-├── main.py                  # entry point
-├── projectum/
-│   ├── app.py               # MainWindow + run()
-│   ├── store.py             # Project / Playlist / Video / ProjectStore
-│   ├── widgets.py           # custom-painted widgets (chips, toggles, palette, …)
-│   ├── theme.py             # 19 themes + contrast helpers + stylesheet builder
-│   ├── anims.py             # crossfade / slide / progress / smooth-scroll helpers
-│   ├── youtube.py           # yt-dlp fetch runnable
-│   └── assets/icon.svg
-├── packaging/appimage/      # AppImage recipe + build script
-├── .github/workflows/       # CI + release (AppImage) pipelines
-├── requirements.txt
-└── docs/screenshots/
-```
-
-## Development
+## Building from source
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -162,26 +134,45 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The codebase is deliberately dependency‑light: `PySide6` for the UI, `yt-dlp` for playlist metadata, and the standard library for everything else. Continuous integration runs `ruff`, byte‑compiles every module, runs the headless `pytest` suite, and boots `MainWindow` on an `offscreen` display across Python 3.10–3.12 on Linux, macOS, and Windows.
+Dependencies are deliberately thin: `PySide6` for the UI, `yt-dlp` for playlist metadata, the standard library for the rest. CI runs `ruff`, byte-compiles every module, runs the `pytest` suite, and boots the window on a headless display across Python 3.10–3.12 on Linux, macOS, and Windows.
 
-Run the tests locally with:
+Run the tests:
 
 ```bash
 pip install pytest
 QT_QPA_PLATFORM=offscreen pytest -q
 ```
 
-### Building the AppImage locally
+Build the AppImage locally:
 
 ```bash
 pip install python-appimage build
-./packaging/appimage/build-appimage.sh
-# -> build/appimage/Projectum-x86_64.AppImage
+./packaging/appimage/build-appimage.sh   # -> build/appimage/Projectum-x86_64.AppImage
+```
+
+### Layout
+
+```
+projectum/
+├── main.py                  # entry point
+├── projectum/
+│   ├── app.py               # MainWindow + run()
+│   ├── store.py             # Project / Playlist / Video / Todo / ProjectStore
+│   ├── links.py             # the relation graph (entities, links, durations)
+│   ├── calendar.py          # date logic + cross-folder scan (no Qt)
+│   ├── widgets.py           # custom-painted widgets (calendar, graph, chips, …)
+│   ├── theme.py             # 19 themes + contrast helpers + stylesheet builder
+│   ├── anims.py             # crossfade / slide / smooth-scroll helpers
+│   ├── youtube.py           # yt-dlp fetch runnable
+│   └── update.py            # the launch update check
+├── packaging/               # AppImage, Flatpak, AUR recipes
+├── .github/workflows/       # CI + release + PyPI pipelines
+└── docs/screenshots/
 ```
 
 ## Support
 
-Projectum is free, MIT‑licensed, and built in the open. If it's useful to you and you'd like to support continued development, you can [**sponsor the project on GitHub**](https://github.com/sponsors/wleeaf) — entirely optional, and Projectum will always stay free, with no servers, accounts, or telemetry.
+Projectum is free and MIT-licensed. If it's useful to you and you feel like chipping in, you can [sponsor it on GitHub](https://github.com/sponsors/wleeaf) — completely optional, and it'll stay free either way, with no servers, accounts, or telemetry.
 
 ## License
 
