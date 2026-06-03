@@ -127,6 +127,31 @@ def test_git_runnable_non_repo_returns_none(window, tmp_path, qapp):
     assert captured["seen"] and captured["info"] is None
 
 
+def test_suspended_failed_toggles_persist_and_color_row(window, tmp_path, qapp):
+    from projectum import theme
+    from projectum.store import ProjectStore
+    from projectum.widgets import ProjectRow
+    ws = workspace(tmp_path, "alpha")
+    window.load_folder(ws)
+    window.list_widget.setCurrentItem(window._row_items["alpha"])
+    qapp.processEvents()
+
+    window.suspended_toggle.setChecked(True)        # mark suspended
+    qapp.processEvents()
+    assert window.current_project.suspended is True
+    assert ProjectStore(ws).projects["alpha"].suspended is True   # persisted
+    assert window.status_box._value.text() == "Suspended"
+    row = window.list_widget.itemWidget(window._row_items["alpha"])
+    assert isinstance(row, ProjectRow)
+    assert theme.WARNING in row.name_label.styleSheet()           # amber name
+
+    window.failed_toggle.setChecked(True)           # failed outranks suspended
+    qapp.processEvents()
+    assert ProjectStore(ws).projects["alpha"].failed is True
+    assert window.status_box._value.text() == "Failed"
+    assert theme.DANGER in row.name_label.styleSheet()            # red name
+
+
 def test_size_signal_handles_folders_over_2gb(qapp):
     # A folder larger than a 32-bit int (~2.1 GB) must not wrap to a negative
     # byte count: the size is carried as qint64, not a C++ int.

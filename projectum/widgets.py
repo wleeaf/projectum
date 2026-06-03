@@ -449,9 +449,15 @@ class ProjectRow(QWidget):
         font = self.name_label.font()
         font.setStrikeOut(completed)
         self.name_label.setFont(font)
-        # Tested takes precedence — blue wins over muted, and still composes
-        # with the strikethrough applied above for completed-and-tested.
-        if self.project.tested:
+        # Lifecycle wins over completion for the name color: failed (red) beats
+        # suspended (amber) beats tested (blue) beats done (muted). Strikethrough
+        # still tracks `completed`, so a done-and-failed row reads red + struck.
+        p = self.project
+        if p.failed:
+            color = theme.DANGER
+        elif p.suspended:
+            color = theme.WARNING
+        elif p.tested:
             color = theme.INFO
         elif completed:
             color = theme.TEXT_MUTED
@@ -473,6 +479,14 @@ class ProjectRow(QWidget):
 
     def set_tested(self, tested: bool) -> None:
         self.project.tested = tested
+        self._restyle_name(self.project.completed)
+
+    def set_suspended(self, suspended: bool) -> None:
+        self.project.suspended = suspended
+        self._restyle_name(self.project.completed)
+
+    def set_failed(self, failed: bool) -> None:
+        self.project.failed = failed
         self._restyle_name(self.project.completed)
 
     def refresh_tags(self) -> None:

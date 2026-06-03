@@ -52,6 +52,8 @@ class Project:
     pinned: bool = False
     position: int = 0  # manual sort key; pinned items still float to top
     tested: bool = False
+    suspended: bool = False  # on hold / paused
+    failed: bool = False     # abandoned / didn't pan out
     # Calendar scheduling. ISO "YYYY-MM-DD"; "" == unscheduled. `end` is
     # INCLUSIVE — start == end (or end == "") means a single day. This
     # convention is shared by storage, the layout helper, and the day-bucket
@@ -247,6 +249,8 @@ class ProjectStore:
                 ex.pinned = bool(d.get("pinned", False))
                 ex.position = _as_int(d.get("position", 0))
                 ex.tested = bool(d.get("tested", False))
+                ex.suspended = bool(d.get("suspended", False))
+                ex.failed = bool(d.get("failed", False))
                 ex.start = _as_str(d.get("start"))
                 ex.end = _as_str(d.get("end"))
                 new_projects[name] = ex
@@ -260,6 +264,8 @@ class ProjectStore:
                     pinned=bool(d.get("pinned", False)),
                     position=_as_int(d.get("position", 0)),
                     tested=bool(d.get("tested", False)),
+                    suspended=bool(d.get("suspended", False)),
+                    failed=bool(d.get("failed", False)),
                     start=_as_str(d.get("start")),
                     end=_as_str(d.get("end")),
                 )
@@ -273,6 +279,7 @@ class ProjectStore:
             and (
                 d.get("notes") or d.get("tags")
                 or d.get("completed") or d.get("tested")
+                or d.get("suspended") or d.get("failed")
                 or d.get("pinned") or d.get("position")
                 or d.get("start") or d.get("end")
             )
@@ -389,6 +396,8 @@ class ProjectStore:
                     "pinned": p.pinned,
                     "position": p.position,
                     "tested": p.tested,
+                    "suspended": p.suspended,
+                    "failed": p.failed,
                     "start": p.start,
                     "end": p.end,
                 }

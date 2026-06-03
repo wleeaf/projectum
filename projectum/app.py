@@ -611,19 +611,27 @@ class MainWindow(QMainWindow):
         dv.addSpacing(24)
 
         meta_row = QHBoxLayout()
-        meta_row.setSpacing(36)
+        meta_row.setSpacing(26)
         self.modified_box = self._make_meta("Last modified")
         self.size_box = self._make_meta("Size")
         self.git_box = self._make_meta("Git")
         self.status_box = self._make_meta("Status")
+        # Status toggles. The inner toggle is the actionable bit; wire its
+        # signal here so the meta-box helper stays generic.
         self.tested_box = self._make_toggle_meta("Tested", color_key="INFO")
-        # The inner toggle is the actionable bit; wire its signal here so
-        # the rest of the meta-box helper stays generic.
         self.tested_toggle = self.tested_box._toggle  # type: ignore[attr-defined]
         self.tested_toggle.setToolTip("Mark this project as tested")
         self.tested_toggle.toggled.connect(self._on_tested_toggle)
-        for w in (self.modified_box, self.size_box, self.git_box,
-                  self.status_box, self.tested_box):
+        self.suspended_box = self._make_toggle_meta("Suspended", color_key="WARNING")
+        self.suspended_toggle = self.suspended_box._toggle  # type: ignore[attr-defined]
+        self.suspended_toggle.setToolTip("Mark this project as suspended (on hold)")
+        self.suspended_toggle.toggled.connect(self._on_suspended_toggle)
+        self.failed_box = self._make_toggle_meta("Failed", color_key="DANGER")
+        self.failed_toggle = self.failed_box._toggle  # type: ignore[attr-defined]
+        self.failed_toggle.setToolTip("Mark this project as failed")
+        self.failed_toggle.toggled.connect(self._on_failed_toggle)
+        for w in (self.modified_box, self.size_box, self.git_box, self.status_box,
+                  self.tested_box, self.suspended_box, self.failed_box):
             meta_row.addWidget(w)
         meta_row.addStretch()
         dv.addLayout(meta_row)
@@ -1266,17 +1274,22 @@ class MainWindow(QMainWindow):
         w._toggle = toggle  # type: ignore[attr-defined]
         return w
 
-    def _set_status_meta(self, completed: bool) -> None:
+    def _set_status_meta(self) -> None:
         val: QLabel = self.status_box._value  # type: ignore[attr-defined]
-        val.setText("Completed" if completed else "Active")
-        if completed:
-            val.setStyleSheet(
-                f"color: {theme.SUCCESS}; font-size: 13px; font-weight: 600;"
-            )
+        p = self.current_project
+        if p is None:
+            return
+        # Strongest lifecycle state wins, matching the sidebar name color.
+        if p.failed:
+            text, color, weight = "Failed", theme.DANGER, 600
+        elif p.suspended:
+            text, color, weight = "Suspended", theme.WARNING, 600
+        elif p.completed:
+            text, color, weight = "Completed", theme.SUCCESS, 600
         else:
-            val.setStyleSheet(
-                f"color: {theme.TEXT}; font-size: 13px; font-weight: 500;"
-            )
+            text, color, weight = "Active", theme.TEXT, 500
+        val.setText(text)
+        val.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: {weight};")
 
     def _bind_shortcuts(self) -> None:
         QShortcut(QKeySequence("Ctrl+O"), self, activated=self.choose_folder)
@@ -1472,7 +1485,7 @@ class MainWindow(QMainWindow):
             return ()
         projects = tuple(
             (name, p.completed, p.notes, tuple(p.tags), p.pinned, p.position,
-             p.tested)
+             p.tested, p.suspended, p.failed)
             for name, p in self.store.projects.items()
         )
         playlists = tuple(
@@ -1903,12 +1916,14 @@ class MainWindow(QMainWindow):
             self.path_label.setText(p.path)
             self.detail_toggle.setChecked(p.completed)
             self.tested_toggle.setChecked(p.tested)
+            self.suspended_toggle.setChecked(p.suspended)
+            self.failed_toggle.setChecked(p.failed)
             self.notes_edit.setPlainText(p.notes)
             mod = p.last_modified()
             self.modified_box._value.setText(self._format_date(mod) if mod else "—")  # type: ignore[attr-defined]
             self.size_box._value.setText("calculating…")  # type: ignore[attr-defined]
             self.git_box._value.setText("…")  # type: ignore[attr-defined]
-            self._set_status_meta(p.completed)
+            self._set_status_meta()
             self._rebuild_tags()
         finally:
             self._loading_details = False
@@ -2078,7 +2093,7 @@ class MainWindow(QMainWindow):
         self.current_project.completed = checked
         self.store.save()
         self._update_stats()
-        self._set_status_meta(checked)
+        self._set_status_meta()
         item = self._row_items.get(self.current_project.name)
         if item is not None:
             row = self.list_widget.itemWidget(item)
@@ -2098,6 +2113,30 @@ class MainWindow(QMainWindow):
             if isinstance(row, ProjectRow):
                 row.set_tested(checked)
 
+    def _on_suspended_toggle(self, checked: bool) -> None:
+        if self._loading_details or not self.current_project or not self.store:
+            return
+        self.current_project.suspended = checked
+        self.store.save()
+        self._set_status_meta()
+        item = self._row_items.get(self.current_project.name)
+        if item is not None:
+            row = self.list_widget.itemWidget(item)
+            if isinstance(row, ProjectRow):
+                row.set_suspended(checked)
+
+    def _on_failed_toggle(self, checked: bool) -> None:
+        if self._loading_details or not self.current_project or not self.store:
+            return
+        self.current_project.failed = checked
+        self.store.save()
+        self._set_status_meta()
+        item = self._row_items.get(self.current_project.name)
+        if item is not None:
+            row = self.list_widget.itemWidget(item)
+            if isinstance(row, ProjectRow):
+                row.set_failed(checked)
+
     def _on_row_completion(self, project: Project, checked: bool) -> None:
         if not self.store:
             return
@@ -2108,7 +2147,7 @@ class MainWindow(QMainWindow):
             self.detail_toggle.blockSignals(True)
             self.detail_toggle.setChecked(checked)
             self.detail_toggle.blockSignals(False)
-            self._set_status_meta(checked)
+            self._set_status_meta()
         if self.current_filter in ("active", "completed"):
             self._apply_filter(
                 preserve_name=self.current_project.name if self.current_project else None
