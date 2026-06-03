@@ -176,6 +176,33 @@ class Todo:
     end: str = ""      # inclusive end; "" / == start => single day
 
 
+@dataclass
+class Note:
+    """One free-standing note in the folder-wide Notes tab.
+
+    The Notes tab is a small notebook of these rather than a single scratchpad.
+    ``body`` is raw Markdown rendered live in the editor.
+    """
+    id: str
+    title: str = ""
+    body: str = ""
+    position: int = 0  # manual sort key (drag-to-reorder)
+
+
+def _note_title_from_body(body: str) -> str:
+    """Derive a title from a note's first non-empty line.
+
+    Used when migrating the legacy single scratchpad and when a note is saved
+    without an explicit title. Strips a leading Markdown heading marker.
+    """
+    for line in body.splitlines():
+        line = line.strip()
+        if line:
+            line = line.lstrip("#").strip() or line
+            return line[:80]
+    return ""
+
+
 class ProjectStore:
     STORE_FILENAME = ".projectum.json"
 
@@ -186,7 +213,8 @@ class ProjectStore:
         self.tag_colors: dict[str, str] = {}
         self.playlists: list[Playlist] = []
         self.todos: list[Todo] = []  # folder-level to-do list (Todo tab)
-        self.notes: str = ""  # folder-level scratchpad shown in the Notes tab
+        self.notes: str = ""  # legacy single scratchpad; migrated into note_docs
+        self.note_docs: list[Note] = []  # folder-level notes shown in Notes tab
         self.load()
 
     @property
@@ -384,10 +412,45 @@ class ProjectStore:
                                       start=start, end=end))
         self.todos = new_todos
 
+        # ── Notes ── preserve existing instances by id. When the modern
+        # ``note_docs`` key is absent, migrate the legacy single scratchpad
+        # (``notes``) into one note — one-way, only when there's something to
+        # carry over. A present-but-empty list means the user cleared them.
+        existing_notes = {n.id: n for n in self.note_docs}
+        new_notes: list[Note] = []
+        raw_note_docs = data.get("note_docs")
+        if isinstance(raw_note_docs, list):
+            for ndata in raw_note_docs:
+                if not isinstance(ndata, dict):
+                    continue
+                nid = ndata.get("id") or uuid.uuid4().hex
+                title = _as_str(ndata.get("title"))
+                body = str(ndata.get("body", ""))
+                position = _as_int(ndata.get("position", 0))
+                en = existing_notes.get(nid)
+                if en is not None:
+                    en.title, en.body, en.position = title, body, position
+                    new_notes.append(en)
+                else:
+                    new_notes.append(Note(id=nid, title=title, body=body,
+                                          position=position))
+        elif self.notes.strip():
+            new_notes.append(Note(
+                id=uuid.uuid4().hex,
+                title=_note_title_from_body(self.notes),
+                body=self.notes,
+                position=0,
+            ))
+        self.note_docs = new_notes
+
     def save(self) -> None:
         payload = {
             "version": 2,
-            "notes": self.notes,
+            "note_docs": [
+                {"id": n.id, "title": n.title, "body": n.body,
+                 "position": n.position}
+                for n in self.note_docs
+            ],
             "projects": {
                 name: {
                     "completed": p.completed,
@@ -588,3 +651,38 @@ class ProjectStore:
     def todo_stats(self) -> tuple[int, int]:
         done = sum(1 for t in self.todos if t.done)
         return done, len(self.todos)
+
+    # ── Notes (folder-wide Notes tab) ──
+
+    def sorted_notes(self) -> list[Note]:
+        """Notes in manual order (``position``); ties keep insertion order."""
+        return sorted(self.note_docs, key=lambda n: n.position)
+
+    def add_note(self, title: str = "", body: str = "") -> Note:
+        pos = max((n.position for n in self.note_docs), default=-1) + 1
+        note = Note(id=uuid.uuid4().hex, title=title, body=body, position=pos)
+        self.note_docs.append(note)
+        self.save()
+        return note
+
+    def remove_note(self, note_id: str) -> bool:
+        for i, n in enumerate(self.note_docs):
+            if n.id == note_id:
+                del self.note_docs[i]
+                self.save()
+                return True
+        return False
+
+    def get_note(self, note_id: str) -> Note | None:
+        for n in self.note_docs:
+            if n.id == note_id:
+                return n
+        return None
+
+    def reorder_notes(self, ids_in_order: list[str]) -> None:
+        """Assign sequential ``position`` values. Caller saves."""
+        by_id = {n.id: n for n in self.note_docs}
+        for i, nid in enumerate(ids_in_order):
+            n = by_id.get(nid)
+            if n is not None:
+                n.position = i

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -39,7 +38,7 @@ from .anims import (
 from .widgets import (
     BrandMark, CalendarScanRunnable, CalendarView, ColorPickerPopup,
     CommandPalette, CompletionToggle, FlowLayout, FrameWrapper, GitRunnable,
-    IconButton, LinksDialog, MarkdownHighlighter, PlaylistRow,
+    IconButton, LinksDialog, MarkdownEditor, NoteRow, note_display, PlaylistRow,
     ProjectRow, SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar,
     TodoRow, UpdateBanner, VideoRow, WindowControlButton, _format_date_iso,
     _format_temporal,
@@ -161,6 +160,7 @@ class MainWindow(QMainWindow):
         self._playlist_items: dict[str, QListWidgetItem] = {}
         self._video_items: dict[str, QListWidgetItem] = {}
         self._todo_items: dict[str, QListWidgetItem] = {}
+        self._note_items: dict[str, QListWidgetItem] = {}
         self._playlist_url_input: QLineEdit | None = None
         self._playlist_tag_editor: TagEditor | None = None
         self._pending_fetches: dict[str, tuple[object, object]] = {}
@@ -184,11 +184,12 @@ class MainWindow(QMainWindow):
         self._playlist_notes_save_timer.timeout.connect(self._save_playlist_notes)
         self._loading_playlist_details = False
 
-        self._global_notes_save_timer = QTimer(self)
-        self._global_notes_save_timer.setSingleShot(True)
-        self._global_notes_save_timer.setInterval(450)
-        self._global_notes_save_timer.timeout.connect(self._save_global_notes)
-        self._loading_global_notes = False
+        self._note_save_timer = QTimer(self)
+        self._note_save_timer.setSingleShot(True)
+        self._note_save_timer.setInterval(450)
+        self._note_save_timer.timeout.connect(self._save_current_note)
+        self._loading_note = False
+        self.current_note = None
 
         self._notes_save_timer = QTimer(self)
         self._notes_save_timer.setSingleShot(True)
@@ -228,7 +229,7 @@ class MainWindow(QMainWindow):
             self.notes_edit,
             self.playlist_notes_edit,
             self.video_notes_edit,
-            self.global_notes_edit,
+            self.note_body_edit,
         ):
             self._scroll_filters.append(SmoothScrollFilter.install(view))
         # Stylesheet applied at QApplication level in run() so popups and
@@ -654,11 +655,9 @@ class MainWindow(QMainWindow):
         dv.addWidget(notes_label)
         dv.addSpacing(8)
 
-        self.notes_edit = QTextEdit()
-        self.notes_edit.setObjectName("notes")
+        self.notes_edit = MarkdownEditor()
         self.notes_edit.setPlaceholderText("Write something about this project…")
         self.notes_edit.textChanged.connect(self._on_notes_changed)
-        self.notes_highlighter = MarkdownHighlighter(self.notes_edit.document())
         dv.addWidget(self.notes_edit, 1)
 
         self.detail_stack.addWidget(detail)
@@ -858,16 +857,12 @@ class MainWindow(QMainWindow):
         pl_notes_label.setObjectName("sectionLabel")
         right_col.addWidget(pl_notes_label)
 
-        self.playlist_notes_edit = QTextEdit()
-        self.playlist_notes_edit.setObjectName("notes")
+        self.playlist_notes_edit = MarkdownEditor()
         self.playlist_notes_edit.setPlaceholderText(
             "Write something about this playlist…"
         )
         self.playlist_notes_edit.textChanged.connect(
             self._on_playlist_notes_changed
-        )
-        self.playlist_notes_highlighter = MarkdownHighlighter(
-            self.playlist_notes_edit.document()
         )
         right_col.addWidget(self.playlist_notes_edit, 1)
         header_row.addLayout(right_col, 2)
@@ -905,14 +900,10 @@ class MainWindow(QMainWindow):
         self.video_notes_label.setObjectName("sectionLabel")
         nw.addWidget(self.video_notes_label)
 
-        self.video_notes_edit = QTextEdit()
-        self.video_notes_edit.setObjectName("notes")
+        self.video_notes_edit = MarkdownEditor()
         self.video_notes_edit.setPlaceholderText("Select a video to write notes…")
         self.video_notes_edit.setEnabled(False)
         self.video_notes_edit.textChanged.connect(self._on_video_notes_changed)
-        self.video_notes_highlighter = MarkdownHighlighter(
-            self.video_notes_edit.document()
-        )
         nw.addWidget(self.video_notes_edit, 1)
         vsplit.addWidget(notes_wrap)
 
@@ -927,50 +918,244 @@ class MainWindow(QMainWindow):
     # ─── Notes view ──────────────────────────────────────────────
 
     def _build_notes_view(self) -> QWidget:
-        container = QWidget()
-        container.setObjectName("detailPanel")
-        v = QVBoxLayout(container)
-        v.setContentsMargins(36, 30, 36, 28)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(1)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self._build_notes_sidebar())
+        splitter.addWidget(self._build_note_detail_panel())
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([360, 820])
+        return splitter
+
+    def _build_notes_sidebar(self) -> QWidget:
+        sidebar = QWidget()
+        sidebar.setObjectName("sidebar")
+        sidebar.setMinimumWidth(300)
+        v = QVBoxLayout(sidebar)
+        v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(10)
 
-        search_row = QHBoxLayout()
-        search_row.setSpacing(8)
+        self.note_add_btn = QPushButton("+ New note")
+        self.note_add_btn.setObjectName("primary")
+        self.note_add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.note_add_btn.clicked.connect(self._add_note)
+        v.addWidget(self.note_add_btn)
+
         self.notes_search_input = QLineEdit()
-        self.notes_search_input.setPlaceholderText(
-            "Search notes — Enter / Shift+Enter for next / previous"
-        )
+        self.notes_search_input.setPlaceholderText("Search notes…")
         self.notes_search_input.setClearButtonEnabled(True)
         self.notes_search_input.textChanged.connect(self._on_notes_search_changed)
-        self.notes_search_input.returnPressed.connect(self._notes_search_next)
-        search_row.addWidget(self.notes_search_input, 1)
-        self.notes_search_count = QLabel("")
-        self.notes_search_count.setStyleSheet(
-            f"color: {theme.TEXT_MUTED}; font-size: 11px; background: transparent;"
-        )
-        search_row.addWidget(self.notes_search_count)
-        v.addLayout(search_row)
+        v.addWidget(self.notes_search_input)
 
-        self.global_notes_edit = QTextEdit()
-        self.global_notes_edit.setObjectName("notes")
-        self.global_notes_edit.setPlaceholderText("Write anything here…")
-        self.global_notes_edit.textChanged.connect(self._on_global_notes_changed)
-        # Re-highlight matches after the user types so highlights stay current.
-        self.global_notes_edit.textChanged.connect(self._refresh_notes_highlights)
-        self.global_notes_highlighter = MarkdownHighlighter(
-            self.global_notes_edit.document()
+        self.notes_list_widget = QListWidget()
+        self.notes_list_widget.setVerticalScrollMode(
+            QListWidget.ScrollMode.ScrollPerPixel
         )
-        v.addWidget(self.global_notes_edit, 1)
-
-        # Cached search state.
-        self._notes_match_count = 0
-
-        # Shift+Enter for previous match while focus is in the search box.
-        prev_sc = QShortcut(
-            QKeySequence("Shift+Return"), self.notes_search_input,
-            activated=self._notes_search_prev,
+        self.notes_list_widget.setUniformItemSizes(False)
+        self.notes_list_widget.setFrameShape(QListWidget.Shape.NoFrame)
+        self.notes_list_widget.currentItemChanged.connect(self._on_note_select)
+        self.notes_list_widget.setDragDropMode(
+            QListWidget.DragDropMode.InternalMove
         )
-        prev_sc.setContext(Qt.ShortcutContext.WidgetShortcut)
-        return container
+        self.notes_list_widget.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.notes_list_widget.model().rowsMoved.connect(self._persist_note_order)
+        self.notes_list_widget.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.notes_list_widget.customContextMenuRequested.connect(
+            self._show_note_context_menu
+        )
+        v.addWidget(self.notes_list_widget, 1)
+
+        self.notes_empty_hint = QLabel(
+            "No notes yet.\nClick “New note” to start one."
+        )
+        self.notes_empty_hint.setObjectName("emptyHint")
+        self.notes_empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v.addWidget(self.notes_empty_hint, 1)
+        return sidebar
+
+    def _build_note_detail_panel(self) -> QWidget:
+        self.note_detail_stack = QStackedWidget()
+
+        # Page 0 — empty state (no note selected / none exist yet).
+        empty = QWidget()
+        empty.setObjectName("detailPanel")
+        ev = QVBoxLayout(empty)
+        empty_hint = QLabel("Select a note, or create a new one.")
+        empty_hint.setObjectName("emptyHint")
+        empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ev.addWidget(empty_hint)
+        self.note_detail_stack.addWidget(empty)
+
+        # Page 1 — the editor: a title field over the live-Markdown body.
+        panel = QWidget()
+        panel.setObjectName("detailPanel")
+        pv = QVBoxLayout(panel)
+        pv.setContentsMargins(36, 30, 36, 28)
+        pv.setSpacing(10)
+
+        self.note_title_edit = QLineEdit()
+        self.note_title_edit.setObjectName("noteTitle")
+        self.note_title_edit.setPlaceholderText("Note title")
+        self.note_title_edit.textChanged.connect(self._on_note_title_changed)
+        pv.addWidget(self.note_title_edit)
+
+        self.note_body_edit = MarkdownEditor()
+        self.note_body_edit.setPlaceholderText(
+            "Start writing… Markdown renders as you type."
+        )
+        self.note_body_edit.textChanged.connect(self._on_note_body_changed)
+        pv.addWidget(self.note_body_edit, 1)
+        self.note_detail_stack.addWidget(panel)
+
+        self.note_detail_stack.setCurrentIndex(0)
+        return self.note_detail_stack
+
+    # ─── Notes tab behavior ──────────────────────────────────────
+
+    def _rebuild_notes_list(self) -> None:
+        self.notes_list_widget.blockSignals(True)
+        self.notes_list_widget.clear()
+        self._note_items.clear()
+        if self.store:
+            for note in self.store.sorted_notes():
+                self._append_note_row(note)
+        self.notes_list_widget.blockSignals(False)
+        self._update_notes_empty_hint()
+
+    def _make_note_row(self, note) -> NoteRow:
+        row = NoteRow(note)
+        row.remove_clicked.connect(lambda nid=note.id: self._remove_note(nid))
+        return row
+
+    def _append_note_row(self, note) -> QListWidgetItem:
+        row = self._make_note_row(note)
+        item = QListWidgetItem()
+        item.setData(Qt.ItemDataRole.UserRole, note.id)
+        item.setSizeHint(QSize(0, row.sizeHint().height()))
+        self.notes_list_widget.addItem(item)
+        self.notes_list_widget.setItemWidget(item, row)
+        self._note_items[note.id] = item
+        return item
+
+    def _add_note(self) -> None:
+        if not self.store:
+            return
+        note = self.store.add_note()
+        item = self._append_note_row(note)
+        self._update_notes_empty_hint()
+        self.notes_search_input.clear()
+        self.notes_list_widget.setCurrentItem(item)  # loads it via _on_note_select
+        self.note_title_edit.setFocus()
+
+    def _on_note_select(self, current, _previous=None) -> None:
+        # Persist any pending edits to the note we're leaving first.
+        if self._note_save_timer.isActive():
+            self._note_save_timer.stop()
+            self._save_current_note()
+        if current is None or not self.store:
+            self.current_note = None
+            self.note_detail_stack.setCurrentIndex(0)
+            return
+        nid = current.data(Qt.ItemDataRole.UserRole)
+        note = self.store.get_note(nid)
+        self.current_note = note
+        if note is None:
+            self.note_detail_stack.setCurrentIndex(0)
+            return
+        self._loading_note = True
+        try:
+            self.note_title_edit.setText(note.title)
+            self.note_body_edit.setPlainText(note.body)
+        finally:
+            self._loading_note = False
+        self.note_detail_stack.setCurrentIndex(1)
+
+    def _on_note_title_changed(self, _text: str = "") -> None:
+        if self._loading_note or not self.store or not self.current_note:
+            return
+        self._note_save_timer.start()
+
+    def _on_note_body_changed(self) -> None:
+        if self._loading_note or not self.store or not self.current_note:
+            return
+        self._note_save_timer.start()
+
+    def _save_current_note(self) -> None:
+        if not self.store or not self.current_note:
+            return
+        title = self.note_title_edit.text()
+        body = self.note_body_edit.toPlainText()
+        if title == self.current_note.title and body == self.current_note.body:
+            return
+        self.current_note.title = title
+        self.current_note.body = body
+        self.store.save()
+        item = self._note_items.get(self.current_note.id)
+        if item is not None:
+            row = self.notes_list_widget.itemWidget(item)
+            if isinstance(row, NoteRow):
+                row.refresh()
+                item.setSizeHint(QSize(0, row.sizeHint().height()))
+
+    def _remove_note(self, note_id: str) -> None:
+        if not self.store:
+            return
+        was_current = bool(self.current_note and self.current_note.id == note_id)
+        if was_current:
+            # The note is going away — drop its pending edits rather than
+            # saving them back.
+            self._note_save_timer.stop()
+            self.current_note = None
+        self.store.remove_note(note_id)
+        item = self._note_items.pop(note_id, None)
+        row_idx = self.notes_list_widget.row(item) if item is not None else -1
+        if row_idx >= 0:
+            self.notes_list_widget.takeItem(row_idx)
+        self._update_notes_empty_hint()
+        count = self.notes_list_widget.count()
+        if count == 0:
+            self.current_note = None
+            self.note_detail_stack.setCurrentIndex(0)
+        elif was_current:
+            self.notes_list_widget.setCurrentRow(max(0, min(row_idx, count - 1)))
+
+    def _persist_note_order(self, *_args) -> None:
+        if not self.store:
+            return
+        ids = [
+            self.notes_list_widget.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(self.notes_list_widget.count())
+        ]
+        self.store.reorder_notes(ids)
+        self.store.save()
+
+    def _show_note_context_menu(self, pos) -> None:
+        item = self.notes_list_widget.itemAt(pos)
+        if item is None:
+            return
+        nid = item.data(Qt.ItemDataRole.UserRole)
+        menu = QMenu(self)
+        menu.addAction("Delete note", lambda: self._remove_note(nid))
+        menu.exec(self.notes_list_widget.mapToGlobal(pos))
+
+    def _update_notes_empty_hint(self) -> None:
+        empty = self.notes_list_widget.count() == 0
+        self.notes_empty_hint.setVisible(empty)
+        self.notes_list_widget.setVisible(not empty)
+
+    def _on_notes_search_changed(self, text: str) -> None:
+        """Filter the note list by title or body text."""
+        q = text.casefold().strip()
+        for nid, item in self._note_items.items():
+            note = self.store.get_note(nid) if self.store else None
+            if note is None:
+                continue
+            hit = (not q) or (q in note.title.casefold()
+                              or q in note.body.casefold())
+            item.setHidden(not hit)
 
     # ─── Todo view ───────────────────────────────────────────────
 
@@ -1159,80 +1344,6 @@ class MainWindow(QMainWindow):
         self.todo_empty_hint.setVisible(empty)
         self.todo_list_widget.setVisible(not empty)
 
-    def _on_notes_search_changed(self, _text: str) -> None:
-        self._refresh_notes_highlights()
-        # Jump to the first match so the user sees something immediately.
-        if self._notes_match_count and self.notes_search_input.text().strip():
-            self._notes_search_seek(forward=True, from_start=True)
-
-    def _refresh_notes_highlights(self) -> None:
-        """Highlight all matches of the search query inside the notes editor.
-
-        Uses ``QTextEdit.setExtraSelections`` rather than modifying the
-        document's char formats — that way the search overlay coexists
-        with the live Markdown highlighter instead of fighting it for
-        ownership of each character's format.
-        """
-        from PySide6.QtGui import QTextCharFormat, QColor, QTextCursor
-        from PySide6.QtWidgets import QTextEdit
-        if not hasattr(self, "notes_search_input") or not hasattr(self, "global_notes_edit"):
-            return
-        query = self.notes_search_input.text()
-        selections: list[QTextEdit.ExtraSelection] = []
-        count = 0
-        if query.strip():
-            hl_fmt = QTextCharFormat()
-            bg = QColor(theme.ACCENT)
-            bg.setAlpha(95)
-            hl_fmt.setBackground(bg)
-            doc = self.global_notes_edit.document()
-            cursor = QTextCursor(doc)
-            while True:
-                cursor = doc.find(query, cursor)
-                if cursor.isNull():
-                    break
-                sel = QTextEdit.ExtraSelection()
-                sel.cursor = cursor
-                sel.format = hl_fmt
-                selections.append(sel)
-                count += 1
-        self.global_notes_edit.setExtraSelections(selections)
-        self._notes_match_count = count
-        if hasattr(self, "notes_search_count"):
-            self.notes_search_count.setText(
-                f"{count} match{'es' if count != 1 else ''}" if query.strip() else ""
-            )
-
-    def _notes_search_next(self) -> None:
-        self._notes_search_seek(forward=True)
-
-    def _notes_search_prev(self) -> None:
-        self._notes_search_seek(forward=False)
-
-    def _notes_search_seek(self, *, forward: bool, from_start: bool = False) -> None:
-        from PySide6.QtGui import QTextDocument, QTextCursor
-        query = self.notes_search_input.text()
-        if not query.strip():
-            return
-        doc = self.global_notes_edit.document()
-        flags = QTextDocument.FindFlag(0)
-        if not forward:
-            flags |= QTextDocument.FindFlag.FindBackward
-        start = (
-            QTextCursor(doc) if from_start
-            else self.global_notes_edit.textCursor()
-        )
-        found = doc.find(query, start, flags)
-        if found.isNull():
-            # Wrap around.
-            wrap = QTextCursor(doc)
-            if not forward:
-                wrap.movePosition(QTextCursor.MoveOperation.End)
-            found = doc.find(query, wrap, flags)
-        if not found.isNull():
-            self.global_notes_edit.setTextCursor(found)
-            self.global_notes_edit.ensureCursorVisible()
-
     def _make_meta(self, label_text: str) -> QWidget:
         w = QWidget()
         l = QVBoxLayout(w)
@@ -1409,6 +1520,7 @@ class MainWindow(QMainWindow):
         self.current_project = None
         self.current_playlist = None
         self.current_video = None
+        self.current_note = None
         self.tag_filter = None
         # Reset search + filter so they don't leak across folders.
         self.current_filter = "all"
@@ -1426,13 +1538,16 @@ class MainWindow(QMainWindow):
         self._rebuild_playlists_list()
         self.todo_input.clear()
         self._rebuild_todo_list()
-        # Load the folder-level scratchpad. Guard so setPlainText doesn't
-        # trip the debounced save back into the freshly-loaded store.
-        self._loading_global_notes = True
-        try:
-            self.global_notes_edit.setPlainText(self.store.notes)
-        finally:
-            self._loading_global_notes = False
+        # Load the folder's notes; open the first one, or show the empty state.
+        self.notes_search_input.blockSignals(True)
+        self.notes_search_input.clear()
+        self.notes_search_input.blockSignals(False)
+        self._rebuild_notes_list()
+        if self.notes_list_widget.count():
+            self.notes_list_widget.setCurrentRow(0)
+        else:
+            self.current_note = None
+            self.note_detail_stack.setCurrentIndex(0)
         self.detail_stack.setCurrentIndex(0)
         self.playlist_detail_stack.setCurrentIndex(0)
         self._rebuild_index_async()   # warm the link/entity index for the new folder
@@ -1443,7 +1558,7 @@ class MainWindow(QMainWindow):
             (self._notes_save_timer, self._save_notes),
             (self._video_notes_save_timer, self._save_video_notes),
             (self._playlist_notes_save_timer, self._save_playlist_notes),
-            (self._global_notes_save_timer, self._save_global_notes),
+            (self._note_save_timer, self._save_current_note),
         ):
             if timer.isActive():
                 timer.stop()
@@ -2157,20 +2272,6 @@ class MainWindow(QMainWindow):
         has_notes = bool(new_notes.strip())
         if has_notes != had_notes:
             self._update_row_notes(self.current_project.name, has_notes)
-
-    def _on_global_notes_changed(self) -> None:
-        if self._loading_global_notes or not self.store:
-            return
-        self._global_notes_save_timer.start()
-
-    def _save_global_notes(self) -> None:
-        if not self.store:
-            return
-        new_notes = self.global_notes_edit.toPlainText()
-        if new_notes == self.store.notes:
-            return
-        self.store.notes = new_notes
-        self.store.save()
 
     def _update_row_notes(self, name: str, has_notes: bool) -> None:
         item = self._row_items.get(name)
@@ -3066,30 +3167,19 @@ class MainWindow(QMainWindow):
                         "_key": t,
                     })
 
-        # Global notes — single hit summarizing first match line.
-        notes_match = (
-            re.search(re.escape(query.strip()), self.store.notes, re.IGNORECASE)
-            if q and self.store.notes else None
-        )
-        if notes_match is not None:
-            # Locate the match in the ORIGINAL text (case-insensitive search on
-            # the original, not index-mapping from a casefolded copy, since
-            # casefold can change length and skew the offsets).
-            idx = notes_match.start()
-            line_start = self.store.notes.rfind("\n", 0, idx) + 1
-            line_end = self.store.notes.find("\n", idx)
-            if line_end == -1:
-                line_end = len(self.store.notes)
-            snippet = self.store.notes[line_start:line_end].strip()
-            if len(snippet) > 80:
-                snippet = snippet[:77] + "…"
-            results.append({
-                "type": "notes",
-                "label": "Open notes & jump to match",
-                "sublabel": snippet,
-                "_score": 0,
-                "_key": query,
-            })
+        # Notes — one hit per note whose title or body matches.
+        if q:
+            for note in self.store.note_docs:
+                if q not in (note.title + "\n" + note.body).casefold():
+                    continue
+                title, preview = note_display(note)
+                results.append({
+                    "type": "notes",
+                    "label": title,
+                    "sublabel": preview or "note",
+                    "_score": score(title),
+                    "_key": note.id,
+                })
 
         # Sort: score asc, then alphabetical label.
         results.sort(key=lambda r: (r["_score"], r["label"].casefold()))
@@ -3133,8 +3223,9 @@ class MainWindow(QMainWindow):
                 self.todo_list_widget.scrollToItem(it)
         elif kind == "notes":
             self._goto_tab("notes")
-            self.notes_search_input.setText(key)
-            self.notes_search_input.setFocus()
+            it = self._note_items.get(key)
+            if it is not None:
+                self.notes_list_widget.setCurrentItem(it)
 
     def _goto_tab(self, key: str) -> None:
         for btn in self._tab_group.buttons():
@@ -3467,15 +3558,15 @@ class MainWindow(QMainWindow):
         self._brand_mark.update()
         self._settings_btn.update()
 
-        # Refresh every markdown highlighter so heading sizes and colors
-        # follow the new theme / font.
+        # Refresh every markdown editor's highlighter so heading sizes and
+        # colors follow the new theme / font.
         for attr in (
-            "notes_highlighter", "playlist_notes_highlighter",
-            "video_notes_highlighter", "global_notes_highlighter",
+            "notes_edit", "playlist_notes_edit",
+            "video_notes_edit", "note_body_edit",
         ):
-            hl = getattr(self, attr, None)
-            if hl is not None:
-                hl.refresh()
+            ed = getattr(self, attr, None)
+            if ed is not None:
+                ed.refresh_highlight()
 
         # Row widgets and detail panels bake some colors into setStyleSheet
         # calls during their __init__; rebuild the lists and re-load the
@@ -3487,9 +3578,18 @@ class MainWindow(QMainWindow):
             cur_pl_id = (
                 self.current_playlist.id if self.current_playlist else None
             )
+            cur_note_id = self.current_note.id if self.current_note else None
             self._full_rebuild_list(preserve_name=cur_proj_name)
             self._rebuild_playlists_list()
             self._rebuild_todo_list()  # rows bake theme colors inline
+            # NoteRow also bakes theme colors inline — flush the open note,
+            # then rebuild the list and reselect it so rows repaint cleanly.
+            if self._note_save_timer.isActive():
+                self._note_save_timer.stop()
+                self._save_current_note()
+            self._rebuild_notes_list()
+            if cur_note_id and cur_note_id in self._note_items:
+                self.notes_list_widget.setCurrentItem(self._note_items[cur_note_id])
             # _full_rebuild_list reselects the visible row, which fires
             # _on_select -> _load_detail; only reload here if the row is
             # filtered out (so reselection didn't happen), to avoid a

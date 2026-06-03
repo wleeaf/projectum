@@ -119,6 +119,69 @@ def test_todo_lifecycle_and_persistence(window, tmp_path, qapp):
         ("write tests", True), ("ship v1.3", False)]
 
 
+def test_notes_tab_create_select_persist(window, tmp_path, qapp):
+    window.load_folder(make_folder(tmp_path, "p"))
+    window._goto_tab("notes"); qapp.processEvents()
+    assert window.notes_empty_hint.isVisible()      # no notes yet
+
+    window._add_note(); qapp.processEvents()
+    window.note_title_edit.setText("Design")
+    window.note_body_edit.setPlainText("# Design\nthink about it")
+    window._note_save_timer.stop(); window._save_current_note()
+
+    window._add_note(); qapp.processEvents()
+    window.note_title_edit.setText("Ideas")
+    window.note_body_edit.setPlainText("ship it")
+    window._note_save_timer.stop(); window._save_current_note()
+    assert window.notes_list_widget.count() == 2
+
+    # Persisted to disk under note_docs.
+    from projectum.store import ProjectStore
+    reloaded = ProjectStore(window.store.root)
+    assert sorted(n.title for n in reloaded.note_docs) == ["Design", "Ideas"]
+
+    # Selecting a note loads it into the editor.
+    first = window.store.sorted_notes()[0]
+    window.notes_list_widget.setCurrentItem(window._note_items[first.id])
+    qapp.processEvents()
+    assert window.current_note.id == first.id
+    assert window.note_body_edit.toPlainText() == first.body
+
+    # Deleting the current note drops the row and clears selection to the next.
+    window._remove_note(first.id); qapp.processEvents()
+    assert first.id not in window._note_items
+    assert window.notes_list_widget.count() == 1
+
+
+def test_notes_switch_persists_outgoing_edits(window, tmp_path, qapp):
+    window.load_folder(make_folder(tmp_path, "p"))
+    window._goto_tab("notes"); qapp.processEvents()
+    a = window.store.add_note("A", ""); window._append_note_row(a)
+    b = window.store.add_note("B", ""); window._append_note_row(b)
+    # Open A and type, then switch to B WITHOUT manually flushing the timer.
+    window.notes_list_widget.setCurrentItem(window._note_items[a.id])
+    qapp.processEvents()
+    window.note_body_edit.setPlainText("unsaved edit to A")
+    window.notes_list_widget.setCurrentItem(window._note_items[b.id])
+    qapp.processEvents()
+    # _on_note_select must save A's edits before loading B.
+    assert window.store.get_note(a.id).body == "unsaved edit to A"
+    assert window.current_note.id == b.id
+
+
+def test_notes_tab_migrates_legacy_scratchpad(window, tmp_path, qapp):
+    import json
+    ws = make_folder(tmp_path, "p")
+    (ws / ".projectum.json").write_text(
+        json.dumps({"version": 2, "notes": "# Hi\nold body"})
+    )
+    window.load_folder(ws); qapp.processEvents()
+    window._goto_tab("notes"); qapp.processEvents()
+    assert window.notes_list_widget.count() == 1
+    assert window.current_note is not None
+    assert window.note_title_edit.text() == "Hi"   # leading '#' stripped
+
+
 def _wheel(viewport, dy, pixel=False):
     return QWheelEvent(
         QPointF(10, 10), viewport.mapToGlobal(QPoint(10, 10)),

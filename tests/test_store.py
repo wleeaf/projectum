@@ -131,6 +131,56 @@ def test_todo_instance_preserved_across_reload(tmp_path):
     assert s.todos[0] is inst  # callers/rows holding the reference stay valid
 
 
+# ── notes (folder-wide Notes tab) ──
+
+def test_note_crud_and_order(tmp_path):
+    s = ProjectStore(tmp_path)
+    a = s.add_note("First", "body a")
+    b = s.add_note("Second", "body b")
+    c = s.add_note("Third", "body c")
+    assert [n.title for n in s.sorted_notes()] == ["First", "Second", "Third"]
+    assert (a.position, b.position, c.position) == (0, 1, 2)
+    s.reorder_notes([c.id, a.id, b.id]); s.save()
+
+    s2 = ProjectStore(tmp_path)
+    assert [n.title for n in s2.sorted_notes()] == ["Third", "First", "Second"]
+    assert s2.get_note(a.id).body == "body a"
+    assert s2.remove_note(a.id) is True
+    assert s2.get_note(a.id) is None
+
+    # Persisted under note_docs; the legacy scalar key is not written.
+    raw = json.loads((tmp_path / ".projectum.json").read_text())
+    assert "note_docs" in raw and "notes" not in raw
+
+
+def test_note_migrates_legacy_scratchpad_once(tmp_path):
+    _write_raw(tmp_path, {"version": 2, "notes": "# Old\nbody line"})
+    s = ProjectStore(tmp_path)
+    assert len(s.note_docs) == 1
+    assert s.note_docs[0].title == "Old"          # leading '#' stripped
+    assert s.note_docs[0].body == "# Old\nbody line"
+    s.save()
+    # After migration the legacy string is dropped; reload must not duplicate.
+    s2 = ProjectStore(tmp_path)
+    assert len(s2.note_docs) == 1
+
+
+def test_note_empty_list_does_not_remigrate(tmp_path):
+    # A present-but-empty note_docs means the user cleared notes — even if a
+    # stale legacy 'notes' string is also present, it must not resurrect.
+    _write_raw(tmp_path, {"version": 2, "note_docs": [], "notes": "stale"})
+    s = ProjectStore(tmp_path)
+    assert s.note_docs == []
+
+
+def test_note_instance_preserved_across_reload(tmp_path):
+    s = ProjectStore(tmp_path)
+    s.add_note("keep", "x")
+    inst = s.note_docs[0]
+    s.load()
+    assert s.note_docs[0] is inst
+
+
 # ── corrupt / hand-edited JSON resilience ──
 
 def test_corrupt_json_variants_do_not_crash(tmp_path):

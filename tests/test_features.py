@@ -162,3 +162,24 @@ def test_size_signal_handles_folders_over_2gb(qapp):
     sig.done.emit("brante", big)
     qapp.processEvents()
     assert got == [big]
+
+
+def _marker_alpha(ed, line, off):
+    """Foreground alpha of the format covering ``off`` on ``line`` — 0 when the
+    Markdown marker there is concealed, 255 when it's revealed."""
+    blk = ed.document().findBlockByNumber(line)
+    covering = [r for r in blk.layout().formats()
+                if r.start <= off < r.start + r.length]
+    return covering[-1].format.foreground().color().alpha() if covering else None
+
+
+def test_markdown_editor_conceals_markers_off_cursor_line(qapp):
+    from projectum.widgets import MarkdownEditor
+    ed = MarkdownEditor()
+    ed.setPlainText("# Heading\nbody **bold** text")
+    ed.highlighter.set_active_block(1)        # cursor on the body line
+    assert _marker_alpha(ed, 0, 0) == 0       # heading '#' concealed (transparent)
+    assert _marker_alpha(ed, 1, 5) == 255     # the bold '*' on the cursor line shows
+    ed.highlighter.set_active_block(0)        # cursor moves up to the heading
+    assert _marker_alpha(ed, 0, 0) == 255     # heading '#' now revealed
+    ed.deleteLater()

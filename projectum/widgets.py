@@ -17,7 +17,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QLabel,
     QLayout, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QScrollArea,
-    QSizePolicy,
+    QSizePolicy, QTextEdit,
 )
 
 from .anims import fade_window_close
@@ -1546,6 +1546,11 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         super().__init__(document)
         self._cached_theme = None
         self._cached_size = None
+        # The block (line) the cursor sits on. Its markers stay dimmed-but-
+        # visible for editing; on every other line the markers are concealed
+        # so the text reads as rendered Markdown. Updated via set_active_block.
+        self._active_block = 0
+        self._reveal = True
         self._build_formats()
 
     def _build_formats(self) -> None:
@@ -1608,9 +1613,17 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         self._quote.setForeground(QColor(TEXT_DIM))
         self._quote.setFontItalic(True)
 
-        # Dim color for the markers themselves (the `#`, `**`, `[]()`…).
+        # Dim color for the markers themselves (the `#`, `**`, `[]()`…) — used
+        # on the cursor's line so they stay legible while editing.
         self._marker = fmt()
         self._marker.setForeground(QColor(TEXT_MUTED))
+
+        # Concealed markers, used on every other line: transparent ink at 1pt
+        # collapses each marker to ~1px, so it reads as hidden while the
+        # underlying document stays raw, editable Markdown.
+        self._marker_hidden = fmt()
+        self._marker_hidden.setForeground(QColor(0, 0, 0, 0))
+        self._marker_hidden.setFontPointSize(1)
 
         self._hr = fmt()
         self._hr.setForeground(QColor(TEXT_MUTED))
@@ -1630,8 +1643,34 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         self._build_formats()
         self.rehighlight()
 
+    def set_active_block(self, block_number: int) -> None:
+        """Reveal markers on ``block_number`` and conceal them everywhere else.
+
+        Only the previously- and newly-active blocks are re-highlighted, so a
+        cursor move is O(1). Reveal is a pure per-block formatting decision — it
+        never touches ``currentBlockState`` (which stays content-only, tracking
+        fenced code), so re-highlighting one line can't cascade to the rest.
+        """
+        if block_number == self._active_block:
+            return
+        old, self._active_block = self._active_block, block_number
+        doc = self.document()
+        if doc is None:
+            return
+        for n in (old, block_number):
+            blk = doc.findBlockByNumber(n)
+            if blk.isValid():
+                self.rehighlightBlock(blk)
+
+    @property
+    def _mk(self) -> QTextCharFormat:
+        """The marker format for the current block: dimmed on the cursor's
+        line, concealed elsewhere."""
+        return self._marker if self._reveal else self._marker_hidden
+
     def highlightBlock(self, text: str) -> None:
         self._maybe_rebuild()
+        self._reveal = self.currentBlock().blockNumber() == self._active_block
 
         # ───── Fenced code blocks (multi-line) ─────
         prev = self.previousBlockState()
@@ -1660,8 +1699,9 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             level = len(m.group(2))
             heading_fmt = self._headings[level - 1]
             self.setFormat(0, len(text), heading_fmt)
-            # Dim the leading `#`s + the space after them.
-            self.setFormat(m.start(2), len(m.group(2)) + 1, self._marker)
+            # Conceal the leading `#`s + the space after them (dimmed on the
+            # cursor's line) so the heading reads flush-left when not editing.
+            self.setFormat(m.start(2), len(m.group(2)) + 1, self._mk)
             # Inline patterns can still apply inside the heading body — pass the
             # heading's point size so bold/code/etc don't reset the glyph size
             # (setFormat REPLACES the char format, it doesn't merge).
@@ -1675,7 +1715,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         m = self.QUOTE_RE.match(text)
         if m:
             self.setFormat(0, len(text), self._quote)
-            self.setFormat(0, len(m.group(0)), self._marker)
+            self.setFormat(0, len(m.group(0)), self._mk)
             # Fall through so inline patterns still work inside the quote.
 
         # ───── List marker ─────
@@ -1710,6 +1750,9 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         for m in self.INLINE_CODE_RE.finditer(text):
             self.setFormat(m.start(), m.end() - m.start(), sized(self._inline_code))
             code_spans.append((m.start(), m.end()))
+            if not skip_marker_dimming and not self._reveal:
+                self.setFormat(m.start(), 1, self._marker_hidden)        # `
+                self.setFormat(m.end() - 1, 1, self._marker_hidden)      # `
 
         def in_code(start: int, end: int) -> bool:
             return any(s <= start and end <= e for s, e in code_spans)
@@ -1720,8 +1763,8 @@ class MarkdownHighlighter(QSyntaxHighlighter):
                     continue
                 self.setFormat(m.start(), m.end() - m.start(), sized(fmt))
                 if not skip_marker_dimming:
-                    self.setFormat(m.start(), marker_len, self._marker)
-                    self.setFormat(m.end() - marker_len, marker_len, self._marker)
+                    self.setFormat(m.start(), marker_len, self._mk)
+                    self.setFormat(m.end() - marker_len, marker_len, self._mk)
 
         apply(self.BOLD_RE, self._bold, 2)
         apply(self.UNDERSCORE_BOLD_RE, self._bold, 2)
@@ -1736,9 +1779,111 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             label_end = m.start() + 1 + len(m.group(1))  # past the closing ]
             self.setFormat(m.start() + 1, len(m.group(1)), sized(self._link))
             if not skip_marker_dimming:
-                # Dim everything except the visible label text.
-                self.setFormat(m.start(), 1, self._marker)            # [
-                self.setFormat(label_end, m.end() - label_end, self._marker)  # ](url)
+                # Conceal everything except the visible label text.
+                self.setFormat(m.start(), 1, self._mk)            # [
+                self.setFormat(label_end, m.end() - label_end, self._mk)  # ](url)
+
+
+class MarkdownEditor(QTextEdit):
+    """A notes editor with live, cursor-aware Markdown rendering.
+
+    Wraps a :class:`MarkdownHighlighter` and feeds it the cursor's line so the
+    syntax markers (``#``, ``**``, backticks, link brackets…) are concealed on
+    every line except the one being edited, where they reappear dimmed. The
+    document itself stays plain, raw Markdown — nothing is rewritten.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("notes")
+        self.setAcceptRichText(False)
+        self.highlighter = MarkdownHighlighter(self.document())
+        self.cursorPositionChanged.connect(self._sync_active_line)
+
+    def _sync_active_line(self) -> None:
+        self.highlighter.set_active_block(self.textCursor().blockNumber())
+
+    def refresh_highlight(self) -> None:
+        """Rebuild highlighter formats after a theme or font-size change."""
+        self.highlighter.refresh()
+
+
+def note_display(note) -> tuple[str, str]:
+    """Return ``(title, preview)`` for a note's list row.
+
+    Title falls back to the note's first non-empty line (heading marker
+    stripped); preview is the next non-empty line after it, so the row shows
+    two distinct lines rather than repeating the title.
+    """
+    title = (note.title or "").strip()
+    lines = (note.body or "").splitlines()
+    first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
+    if not title and first is not None:
+        stripped = lines[first].strip()
+        title = stripped.lstrip("#").strip() or stripped
+    preview = ""
+    rest = lines[first + 1:] if first is not None else []
+    for ln in rest:
+        s = ln.strip()
+        if s:
+            preview = (s.lstrip("#").strip() or s)
+            break
+    return (title or "Untitled note", preview[:80])
+
+
+class NoteRow(QWidget):
+    """One note in the Notes-tab list: its title, a dimmed one-line preview of
+    the body, and a delete button."""
+
+    remove_clicked = Signal()
+
+    def __init__(self, note, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.note = note
+        self._build()
+
+    def _build(self) -> None:
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 9, 8, 9)
+        layout.setSpacing(10)
+
+        col = QVBoxLayout()
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(2)
+        self.title_label = QLabel()
+        tf = QFont()
+        tf.setPointSize(11)
+        tf.setWeight(QFont.Weight.DemiBold)
+        self.title_label.setFont(tf)
+        col.addWidget(self.title_label)
+        self.preview_label = QLabel()
+        pf = QFont()
+        pf.setPointSize(10)
+        self.preview_label.setFont(pf)
+        col.addWidget(self.preview_label)
+        layout.addLayout(col, 1)
+
+        self.remove_btn = QPushButton("×")
+        self.remove_btn.setObjectName("ghost")
+        self.remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.remove_btn.setFixedSize(24, 24)
+        self.remove_btn.setToolTip("Delete note")
+        self.remove_btn.clicked.connect(self.remove_clicked.emit)
+        layout.addWidget(self.remove_btn, alignment=Qt.AlignmentFlag.AlignTop)
+
+        self.refresh()
+
+    def refresh(self) -> None:
+        title, preview = note_display(self.note)
+        self.title_label.setText(title)
+        self.title_label.setStyleSheet(
+            f"color: {theme.TEXT}; background: transparent;"
+        )
+        self.preview_label.setText(preview)
+        self.preview_label.setStyleSheet(
+            f"color: {theme.TEXT_MUTED}; font-size: 10px; background: transparent;"
+        )
+        self.preview_label.setVisible(bool(preview))
 
 
 # ──────────────── Playlists ────────────────

@@ -757,6 +757,23 @@ QTextEdit#notes {{
     padding: 14px 16px;
 }}
 
+QLineEdit#noteTitle {{
+    /* The note's title reads as a heading, not a form field: borderless,
+       larger, only a quiet underline that warms on focus. */
+    background-color: transparent;
+    border: none;
+    border-bottom: 1px solid {BORDER};
+    border-radius: 0;
+    padding: 4px 2px 8px 2px;
+    font-size: {size + 7}px;
+    font-weight: 600;
+    color: {TEXT};
+}}
+
+QLineEdit#noteTitle:focus {{
+    border-bottom: 1px solid {ACCENT};
+}}
+
 QListWidget {{
     background-color: transparent;
     border: none;

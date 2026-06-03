@@ -24,7 +24,7 @@ No servers, no account, no telemetry. Your per-folder data is one JSON file sitt
 
 ## What it is
 
-Point Projectum at a folder. Every subfolder shows up as a project you can mark done or tested, tag, pin, and annotate with live-rendered Markdown. The same window holds a to-do list, a folder-wide scratchpad, and your YouTube playlists (titles, durations, watched state, per-video notes, fetched with [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)).
+Point Projectum at a folder. Every subfolder shows up as a project you can mark done or tested, tag, pin, and annotate with live-rendered Markdown. The same window holds a to-do list, a notebook of Markdown notes, and your YouTube playlists (titles, durations, watched state, per-video notes, fetched with [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)).
 
 That part is per-folder, and it lives in a single `.projectum.json` inside the folder, so it travels with your work and diffs cleanly in Git.
 
@@ -87,7 +87,7 @@ The Calendar is the home for the date side of all this. Hover a day and it light
 | | |
 |---|---|
 | **Calendar** — anything linked to a date shows up on that day; spans draw as bars. Click a day to attribute it, or drag across days for a frame.<br>![Calendar](docs/screenshots/02-calendar.png) | **Links** — the dialog behind it all: see and edit what an item connects to.<br>![Links](docs/screenshots/03-links.png) |
-| **Playlists** — paste a URL, tick videos off, keep notes per video.<br>![Playlists](docs/screenshots/04-playlists.png) | **Notes** — a folder-wide scratchpad in live Markdown.<br>![Notes](docs/screenshots/05-notes.png) |
+| **Playlists** — paste a URL, tick videos off, keep notes per video.<br>![Playlists](docs/screenshots/04-playlists.png) | **Notes** — a notebook of Markdown notes; syntax markers hide until you put the cursor on the line.<br>![Notes](docs/screenshots/05-notes.png) |
 | **Todo** — quick folder-scoped tasks.<br>![Todo](docs/screenshots/06-todo.png) | **Settings** — theme, font, font size, update check.<br>![Settings](docs/screenshots/07-settings.png) |
 | **Light theme** — one of nineteen.<br>![Light](docs/screenshots/08-light.png) | |
 
@@ -95,9 +95,9 @@ The Calendar is the home for the date side of all this. Hover a day and it light
 
 - **Projects from the filesystem.** Each subfolder is a project. The detail panel shows its size, last-modified time, and current git branch + whether the tree is dirty (read off the UI thread, so it never blocks). Done and tested toggles, color tags with a sidebar filter, pin-to-top, drag to reorder.
 - **Playlists with per-video tracking.** *Refresh* pulls in new uploads without losing your watched/notes state; anything removed upstream is kept and flagged rather than silently dropped.
-- **Live Markdown** everywhere there's a notes pane. Headings, bold/italic, code, lists, quotes, and links render as you type, with the markers dimmed but still editable. No preview toggle.
+- **Live Markdown** everywhere there's a notes pane. Headings, bold/italic, code, lists, quotes, and links render as you type. The syntax markers (`#`, `**`, backticks, link brackets) stay hidden until you move the cursor onto a line, then reappear so you can edit them — a live preview with no separate preview mode, and the document underneath is always plain Markdown.
 - **Quick actions** on a project: open the folder, copy its path, open a terminal there, or open it in your editor (VS Code / Cursor / Zed / Sublime, if one's on your `PATH`).
-- **Command palette** (`Ctrl+K`) over projects, playlists, videos, tags, and the scratchpad — prefix-ranked, type-ahead.
+- **Command palette** (`Ctrl+K`) over projects, playlists, videos, tags, and your notes — prefix-ranked, type-ahead.
 - **Nineteen themes**, dark and light, from Catppuccin and Nord and Gruvbox to a few of my own (Midnight, Synthwave, Ember, Graphite, Paper). Every one is checked against a WCAG contrast floor in CI so text stays readable, and switching crossfades instead of snapping. Any installed font, any size.
 - **Update check** — a quiet banner when a newer release exists. One read-only call to the GitHub releases API on launch, off by a toggle, and nothing is sent anywhere.
 - **Resilient by default.** Saves are atomic. Rename a project folder or switch branches and its metadata is parked safely, then restored when the folder comes back.
@@ -114,7 +114,6 @@ The Calendar is the home for the date side of all this. Hover a day and it light
 | `Ctrl+T`            | Jump to Todo and start a new task                         |
 | `Ctrl+N`            | Focus the project notes editor                            |
 | `Ctrl+R`            | Refresh the current folder                                |
-| `↵` / `Shift+↵`     | Next / previous match in Notes search                     |
 | `Esc`               | Close a popup                                             |
 
 ## Where your data lives
