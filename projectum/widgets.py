@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import os
 from datetime import date, timedelta
 from pathlib import Path
@@ -2243,6 +2242,7 @@ class MonthGrid(QWidget):
         self._bars: list = []
         self._drag: dict | None = None   # in-progress move/resize of a bar
         self._day_sel: dict | None = None  # in-progress day / frame selection
+        self._hover_day = None           # day cell under the cursor (hover feedback)
         self._allow_bar_drag = True      # False -> bars click-only (links mode)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(380)
@@ -2384,6 +2384,8 @@ class MonthGrid(QWidget):
                 in_month = d.month == self._month
                 is_today = d == self._today
                 is_weekend = col >= 5
+                is_hover = (d == self._hover_day and self._drag is None
+                            and self._day_sel is None)
                 cell = self._cell_rect(week, col).adjusted(1.5, 1.5, -1.5, -1.5)
 
                 if not in_month:
@@ -2392,8 +2394,13 @@ class MonthGrid(QWidget):
                     bg = QColor(theme.SURFACE_2)
                 else:
                     bg = QColor(theme.SURFACE)
-                p.setBrush(bg)
-                p.setPen(QPen(QColor(theme.BORDER), 1.0))
+                if is_hover:
+                    # Lift the cell and accent its border so days read as clickable.
+                    p.setBrush(QColor(theme.SURFACE_3))
+                    p.setPen(QPen(QColor(theme.ACCENT), 1.6))
+                else:
+                    p.setBrush(bg)
+                    p.setPen(QPen(QColor(theme.BORDER), 1.0))
                 p.drawRoundedRect(cell, 7, 7)
 
                 # Big day number, centered in the top strip (today: accent badge).
@@ -2567,20 +2574,34 @@ class MonthGrid(QWidget):
                 self.update()
             event.accept()
             return
-        # Hover feedback: resize cursor near a bar's draggable end.
-        if not self._drag:
-            bar = self._bar_at(event.position())
-            cur = Qt.CursorShape.ArrowCursor
+        # Plain hover: highlight the day under the cursor + pick a cursor.
+        if self._drag is None and self._day_sel is None:
+            pos = event.position()
+            day = self._day_at(pos)
+            if day != self._hover_day:
+                self._hover_day = day
+                self.update()
+            bar = self._bar_at(pos)
             if bar is not None:
                 rect = self._bar_rect(bar)
-                x = event.position().x()
+                x = pos.x()
                 if (not bar.continues_left and x - rect.left() <= self.EDGE) or \
                         (not bar.continues_right and rect.right() - x <= self.EDGE):
                     cur = Qt.CursorShape.SizeHorCursor
                 else:
                     cur = Qt.CursorShape.PointingHandCursor
+            elif day is not None:
+                cur = Qt.CursorShape.PointingHandCursor   # days are clickable
+            else:
+                cur = Qt.CursorShape.ArrowCursor
             self.setCursor(cur)
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        if self._hover_day is not None:
+            self._hover_day = None
+            self.update()
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         self.unsetCursor()
@@ -3006,6 +3027,7 @@ class LinksDialog(QWidget):
         self._search.setObjectName("linksSearch")
         self._search.setPlaceholderText("Search projects, playlists, todos…")
         self._search.textChanged.connect(self._on_search)
+        self._search.returnPressed.connect(self._add_top_result)  # Enter -> attach top match
         v.addWidget(self._search)
         self._results = QListWidget()
         self._results.setObjectName("linksResults")
@@ -3014,8 +3036,11 @@ class LinksDialog(QWidget):
         self._results.itemClicked.connect(self._add_from_result)
         v.addWidget(self._results)
 
-        # Add a date link.
-        date_row = QHBoxLayout()
+        # Add a date link. (Only meaningful for an entity subject — hidden when
+        # the subject is itself a date/frame/duration.)
+        self._date_row_w = QWidget()
+        date_row = QHBoxLayout(self._date_row_w)
+        date_row.setContentsMargins(0, 0, 0, 0)
         date_row.setSpacing(8)
         en = self._en
         self._date = QDateEdit()
@@ -3033,11 +3058,13 @@ class LinksDialog(QWidget):
         add_date.setCursor(Qt.CursorShape.PointingHandCursor)
         add_date.clicked.connect(self._add_date)
         date_row.addWidget(add_date)
-        v.addLayout(date_row)
+        v.addWidget(self._date_row_w)
 
         # Add a duration ("delta time") — pick a count + a whole unit.
         from PySide6.QtWidgets import QComboBox, QSpinBox
-        dur_row = QHBoxLayout()
+        self._dur_row_w = QWidget()
+        dur_row = QHBoxLayout(self._dur_row_w)
+        dur_row.setContentsMargins(0, 0, 0, 0)
         dur_row.setSpacing(8)
         self._delta_count = QSpinBox()
         self._delta_count.setObjectName("linksSpin")
@@ -3053,7 +3080,11 @@ class LinksDialog(QWidget):
         add_dur.setCursor(Qt.CursorShape.PointingHandCursor)
         add_dur.clicked.connect(self._add_delta)
         dur_row.addWidget(add_dur)
-        v.addLayout(dur_row)
+        v.addWidget(self._dur_row_w)
+
+        if subject_ref.is_temporal:
+            self._date_row_w.setVisible(False)
+            self._dur_row_w.setVisible(False)
 
         close = QPushButton("Close")
         close.setObjectName("scheduleCancel")
@@ -3063,6 +3094,14 @@ class LinksDialog(QWidget):
 
         self._refresh_links()
         self._on_search("")  # populate the browse list up front
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._search.setFocus()   # type to relate immediately
+
+    def _add_top_result(self) -> None:
+        if self._results.count():
+            self._add_from_result(self._results.item(0))
 
     # ── current links ──
     def _label(self, ref) -> tuple[str, bool]:
@@ -3163,223 +3202,3 @@ class LinksDialog(QWidget):
             self.close()
         else:
             super().keyPressEvent(event)
-
-
-# ──────────────────────────── Graph view ────────────────────────────────────
-
-class GraphCanvas(QWidget):
-    """Radial ego-graph: the focus entity at center, its neighbours in a ring.
-
-    Click a neighbour to refocus on it (explore the graph); double-click any
-    node to open it in the app. No physics — positions are a simple ring, so
-    it's cheap and stable on a graph of any size.
-    """
-
-    focus_changed = Signal(object)   # new focus EntityRef
-    navigate = Signal(object)        # double-click -> open entity in the app
-
-    MAX_NEIGHBORS = 18
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self._store = None
-        self._index: dict = {}
-        self._focus = None
-        self._nodes: list = []       # (ref, QPointF center, radius) for hit-testing
-        self._hidden = 0
-        self.setMinimumHeight(380)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setMouseTracking(True)
-
-    def set_data(self, store, index: dict) -> None:
-        self._store = store
-        self._index = index or {}
-        self.update()
-
-    def set_focus(self, ref) -> None:
-        self._focus = ref
-        self.update()
-
-    def focus(self):
-        return self._focus
-
-    def _title(self, ref) -> str:
-        if ref is None:
-            return ""
-        temporal = _format_temporal(ref)
-        if temporal is not None:
-            return temporal
-        info = self._index.get(ref)
-        return info.title if info is not None else "(unavailable)"
-
-    def _layout(self) -> None:
-        self._nodes = []
-        self._hidden = 0
-        if self._focus is None or self._store is None:
-            return
-        w, h = self.width(), self.height()
-        cx, cy = w / 2.0, h / 2.0
-        self._nodes.append((self._focus, QPointF(cx, cy), 32.0))
-        neigh = self._store.neighbors(self._focus)
-        self._hidden = max(0, len(neigh) - self.MAX_NEIGHBORS)
-        neigh = neigh[:self.MAX_NEIGHBORS]
-        n = len(neigh)
-        if n == 0:
-            return
-        radius = min(w, h) / 2.0 - 96
-        radius = max(radius, 90.0)
-        for i, ref in enumerate(neigh):
-            ang = 2 * math.pi * i / n - math.pi / 2
-            self._nodes.append(
-                (ref, QPointF(cx + radius * math.cos(ang), cy + radius * math.sin(ang)), 24.0)
-            )
-
-    def paintEvent(self, _event) -> None:
-        self._layout()
-        with QPainter(self) as p:
-            p.setRenderHint(QPainter.RenderHint.Antialiasing)
-            p.fillRect(self.rect(), QColor(theme.BG))
-            if not self._nodes:
-                p.setPen(QColor(theme.TEXT_MUTED))
-                p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                           "Pick something to focus the graph.")
-                return
-            focus_center = self._nodes[0][1]
-            # edges first (under the nodes)
-            p.setPen(QPen(QColor(theme.BORDER), 1.5))
-            for _ref, c, _r in self._nodes[1:]:
-                p.drawLine(focus_center, c)
-            label_font = QFont(self.font())
-            label_font.setPointSizeF(max(8.0, self.font().pointSizeF() - 1))
-            fm = QFontMetrics(label_font)
-            for idx, (ref, c, r) in enumerate(self._nodes):
-                is_focus = idx == 0
-                color = QColor(getattr(theme, KIND_COLOR_KEY.get(ref.kind, "ACCENT"), theme.ACCENT))
-                p.setBrush(color)
-                p.setPen(QPen(QColor(theme.TEXT), 2.5) if is_focus else Qt.PenStyle.NoPen)
-                p.drawEllipse(c, r, r)
-                # label under the node
-                p.setFont(label_font)
-                p.setPen(QColor(theme.TEXT if is_focus else theme.TEXT_DIM))
-                tw = r * 5
-                label = fm.elidedText(self._title(ref), Qt.TextElideMode.ElideRight, int(tw))
-                lr = QRectF(c.x() - tw / 2, c.y() + r + 3, tw, 16)
-                p.drawText(lr, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, label)
-            if len(self._nodes) == 1:
-                p.setPen(QColor(theme.TEXT_MUTED))
-                hint = QRectF(0, focus_center.y() + 52, self.width(), 22)
-                p.drawText(hint, Qt.AlignmentFlag.AlignCenter,
-                           "No links yet — add some from its Links… menu.")
-            elif self._hidden:
-                p.setPen(QColor(theme.TEXT_MUTED))
-                p.drawText(QRectF(8, self.height() - 24, self.width() - 16, 18),
-                           Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                           f"+{self._hidden} more not shown")
-
-    def _node_at(self, pos: QPointF):
-        for ref, c, r in self._nodes:
-            dx, dy = pos.x() - c.x(), pos.y() - c.y()
-            if dx * dx + dy * dy <= r * r:
-                return ref
-        return None
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            ref = self._node_at(event.position())
-            if ref is not None and ref != self._focus:
-                self.set_focus(ref)
-                self.focus_changed.emit(ref)
-                event.accept()
-                return
-        super().mousePressEvent(event)
-
-    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
-        ref = self._node_at(event.position())
-        if ref is not None:
-            self.navigate.emit(ref)
-            event.accept()
-            return
-        super().mouseDoubleClickEvent(event)
-
-
-class GraphView(QWidget):
-    """The Graph tab: focus picker over a :class:`GraphCanvas`."""
-
-    open_links_requested = Signal(object)   # ref -> open its Links dialog
-    navigate_requested = Signal(object)     # ref -> reveal entity in the app
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("graphView")
-        self._title_to_ref: dict = {}
-        root = QVBoxLayout(self)
-        root.setContentsMargins(14, 12, 14, 14)
-        root.setSpacing(10)
-
-        header = QHBoxLayout()
-        header.setSpacing(8)
-        self.focus_search = QLineEdit()
-        self.focus_search.setObjectName("graphSearch")
-        self.focus_search.setPlaceholderText("Focus on… (search projects, playlists, todos)")
-        self.focus_search.returnPressed.connect(self._focus_from_search)
-        header.addWidget(self.focus_search, 1)
-        self.links_btn = QPushButton("Links…")
-        self.links_btn.setObjectName("calToday")
-        self.links_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.links_btn.clicked.connect(self._request_links)
-        header.addWidget(self.links_btn)
-        root.addLayout(header)
-
-        self.focus_label = QLabel("")
-        self.focus_label.setObjectName("graphFocusLabel")
-        root.addWidget(self.focus_label)
-
-        self.canvas = GraphCanvas()
-        self.canvas.focus_changed.connect(self._on_focus_changed)
-        self.canvas.navigate.connect(self.navigate_requested.emit)
-        root.addWidget(self.canvas, 1)
-
-    def set_data(self, store, index: dict) -> None:
-        from PySide6.QtWidgets import QCompleter
-        self.canvas.set_data(store, index)
-        self._title_to_ref = {}
-        strings = []
-        for ref, info in index.items():
-            label = f"{info.title} · {KIND_LABEL.get(ref.kind, ref.kind)}"
-            self._title_to_ref[label] = ref
-            strings.append(label)
-        completer = QCompleter(sorted(strings), self)
-        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        completer.activated.connect(self._focus_from_completer)
-        self.focus_search.setCompleter(completer)
-
-    def set_focus(self, ref) -> None:
-        self.canvas.set_focus(ref)
-        self._update_focus_label(ref)
-
-    def _focus_from_completer(self, text: str) -> None:
-        ref = self._title_to_ref.get(text)
-        if ref is not None:
-            self.set_focus(ref)
-            self.focus_search.clear()
-
-    def _focus_from_search(self) -> None:
-        text = self.focus_search.text().strip()
-        if text in self._title_to_ref:
-            self.set_focus(self._title_to_ref[text])
-            self.focus_search.clear()
-
-    def _on_focus_changed(self, ref) -> None:
-        self._update_focus_label(ref)
-
-    def _update_focus_label(self, ref) -> None:
-        if ref is None:
-            self.focus_label.setText("")
-            return
-        self.focus_label.setText(f"Focus · {self.canvas._title(ref)}")
-
-    def _request_links(self) -> None:
-        ref = self.canvas.focus()
-        if ref is not None:
-            self.open_links_requested.emit(ref)

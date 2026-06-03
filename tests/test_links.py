@@ -155,6 +155,28 @@ def test_links_dialog_extend_day_to_range(qapp, tmp_path):
     dlg.deleteLater()
 
 
+def test_links_dialog_date_subject_hides_date_and_duration_controls(qapp, tmp_path):
+    from projectum.widgets import LinksDialog
+    store = LinkStore(tmp_path / "l.json")
+    d_date = LinksDialog(date_ref("2026-06-10"), "Jun 10", store, {}, allow_range=True)
+    assert d_date._date_row_w.isHidden() and d_date._dur_row_w.isHidden()  # nonsense for a date
+    d_ent = LinksDialog(make_ref("project", "/r", "alpha"), "alpha", store, {})
+    assert not d_ent._date_row_w.isHidden() and not d_ent._dur_row_w.isHidden()
+    d_date.deleteLater(); d_ent.deleteLater()
+
+
+def test_links_dialog_enter_attaches_top_match(qapp, tmp_path):
+    from projectum.widgets import LinksDialog
+    store = LinkStore(tmp_path / "l.json")
+    subj = make_ref("todo", "/r", "u1")
+    idx = index_entities([("/r", "project", "alpha", "Alpha"), ("/r", "project", "beta", "Beta")])
+    d = LinksDialog(subj, "T", store, idx)
+    d._search.setText("alpha"); d._on_search("alpha")
+    d._add_top_result()                                  # Enter on the search
+    assert store.has(subj, make_ref("project", "/r", "alpha"))
+    d.deleteLater()
+
+
 def test_open_links_dialog_indexes_cross_folder(window, qapp, tmp_path):
     fa = tmp_path / "work"; fa.mkdir(); (fa / "alpha").mkdir()
     fb = tmp_path / "media"; fb.mkdir(); (fb / "beta").mkdir()
@@ -208,33 +230,3 @@ def test_prune_links_on_todo_delete(window, qapp, tmp_path):
     assert window._link_store.degree(ref) == 1
     window._remove_todo(todo.id)                 # explicit deletion prunes edges
     assert window._link_store.degree(ref) == 0
-
-
-# ── graph view ──
-
-def test_graph_canvas_layout_and_hit(qapp, tmp_path):
-    from projectum.widgets import GraphCanvas
-    store = LinkStore(tmp_path / "l.json")
-    hub = make_ref("todo", "/r", "h")
-    store.add(hub, make_ref("project", "/r", "p1"))
-    store.add(hub, date_ref("2026-06-20"))
-    c = GraphCanvas(); c.resize(600, 600)
-    c.set_data(store, index_entities([("/r", "todo", "h", "Hub"), ("/r", "project", "p1", "P1")]))
-    c.set_focus(hub)
-    c._layout()
-    assert len(c._nodes) == 3 and c._nodes[0][0] == hub      # focus + 2 neighbours
-    assert c._node_at(c._nodes[0][1]) == hub                 # hit-test the focus node
-    assert c._node_at(c._nodes[1][1]) == c._nodes[1][0]      # hit-test a neighbour
-    c.deleteLater()
-
-
-def test_graph_view_focus_via_completer(qapp, tmp_path):
-    from projectum.widgets import GraphView
-    gv = GraphView()
-    gv.set_data(LinkStore(tmp_path / "l.json"),
-                index_entities([("/r", "project", "alpha", "Alpha service")]))
-    label = "Alpha service · Project"
-    assert label in gv._title_to_ref
-    gv._focus_from_completer(label)
-    assert gv.canvas.focus() == make_ref("project", "/r", "alpha")
-    gv.deleteLater()

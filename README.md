@@ -28,7 +28,7 @@ Point Projectum at a folder. Every subfolder shows up as a project you can mark 
 
 That part is per-folder, and it lives in a single `.projectum.json` inside the folder, so it travels with your work and diffs cleanly in Git.
 
-The other half is **relations**. A project, a playlist, a todo, a calendar date, a span of days, even a bare duration like "2 weeks". Any of them can link to any other. That's where the Calendar and the Graph come from: two ways of looking at the same web of connections. Relations are global, so they reach across every folder you've opened (more on where they're stored [below](#where-your-data-lives)).
+The other half is **relations**. A project, a playlist, a todo, a calendar date, a span of days, even a bare duration like "2 weeks". Any of them can link to any other, and the **Calendar** is where date relations come together. Relations are global, so they reach across every folder you've opened (more on where they're stored [below](#where-your-data-lives)).
 
 ## Install
 
@@ -80,16 +80,16 @@ This is the part that makes Projectum more than a list of folders. Right-click a
 - **a day** or a **date frame** (a span like June 12–16);
 - **a duration** — an unanchored "2 weeks", "3 days", for when you care about *how long* a thing takes, not *when*.
 
-Links go both ways: open the playlist later and the project is sitting right there as a backlink. None of it is typed or rigid. It's just "these things are related," which tends to match how you actually keep track of work.
+Links go both ways: open the playlist later and the project is sitting right there as a backlink. None of it is typed or rigid. It's just "these things are related," which tends to match how you actually keep track of work. The add box is a focused search — start typing and press Enter to attach the top match, no clicking required.
 
-Two views read the same graph:
+The Calendar is the home for the date side of all this. Hover a day and it lights up; click it to pull up what's on it and attach more; drag across days for a span.
 
 | | |
 |---|---|
-| **Calendar** — anything linked to a date shows up on that day; spans draw as bars. Click a day to attribute it, or drag across days for a frame.<br>![Calendar](docs/screenshots/02-calendar.png) | **Graph** — pick a node and see what it touches; click a neighbour to walk the web.<br>![Graph](docs/screenshots/03-graph.png) |
-| **Links** — the dialog behind it all: see and edit what an item connects to.<br>![Links](docs/screenshots/04-links.png) | **Playlists** — paste a URL, tick videos off, keep notes per video.<br>![Playlists](docs/screenshots/05-playlists.png) |
-| **Notes** — a folder-wide scratchpad in live Markdown.<br>![Notes](docs/screenshots/06-notes.png) | **Todo** — quick folder-scoped tasks.<br>![Todo](docs/screenshots/07-todo.png) |
-| **Settings** — theme, font, font size, update check.<br>![Settings](docs/screenshots/08-settings.png) | **Light theme** — one of nineteen.<br>![Light](docs/screenshots/09-light.png) |
+| **Calendar** — anything linked to a date shows up on that day; spans draw as bars. Click a day to attribute it, or drag across days for a frame.<br>![Calendar](docs/screenshots/02-calendar.png) | **Links** — the dialog behind it all: see and edit what an item connects to.<br>![Links](docs/screenshots/03-links.png) |
+| **Playlists** — paste a URL, tick videos off, keep notes per video.<br>![Playlists](docs/screenshots/04-playlists.png) | **Notes** — a folder-wide scratchpad in live Markdown.<br>![Notes](docs/screenshots/05-notes.png) |
+| **Todo** — quick folder-scoped tasks.<br>![Todo](docs/screenshots/06-todo.png) | **Settings** — theme, font, font size, update check.<br>![Settings](docs/screenshots/07-settings.png) |
+| **Light theme** — one of nineteen.<br>![Light](docs/screenshots/08-light.png) | |
 
 ## The rest of it
 
@@ -107,7 +107,7 @@ Two views read the same graph:
 | Shortcut            | Action                                                    |
 |---------------------|-----------------------------------------------------------|
 | `Ctrl+K`            | Command palette                                           |
-| `Ctrl+1` … `Ctrl+6` | Switch tab (Projects / Playlists / Todo / Calendar / Graph / Notes) |
+| `Ctrl+1` … `Ctrl+5` | Switch tab (Projects / Playlists / Todo / Calendar / Notes) |
 | `Ctrl+O`            | Open a folder                                             |
 | `Ctrl+F`            | Focus the sidebar search                                  |
 | `Ctrl+D`            | Toggle the selected project's *done* state                |
@@ -160,7 +160,7 @@ projectum/
 │   ├── store.py             # Project / Playlist / Video / Todo / ProjectStore
 │   ├── links.py             # the relation graph (entities, links, durations)
 │   ├── calendar.py          # date logic + cross-folder scan (no Qt)
-│   ├── widgets.py           # custom-painted widgets (calendar, graph, chips, …)
+│   ├── widgets.py           # custom-painted widgets (calendar, chips, toggles, …)
 │   ├── theme.py             # 19 themes + contrast helpers + stylesheet builder
 │   ├── anims.py             # crossfade / slide / smooth-scroll helpers
 │   ├── youtube.py           # yt-dlp fetch runnable

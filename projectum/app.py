@@ -39,7 +39,7 @@ from .anims import (
 from .widgets import (
     BrandMark, CalendarScanRunnable, CalendarView, ColorPickerPopup,
     CommandPalette, CompletionToggle, FlowLayout, FrameWrapper, GitRunnable,
-    GraphView, IconButton, LinksDialog, MarkdownHighlighter, PlaylistRow,
+    IconButton, LinksDialog, MarkdownHighlighter, PlaylistRow,
     ProjectRow, SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar,
     TodoRow, UpdateBanner, VideoRow, WindowControlButton, _format_date_iso,
     _format_temporal,
@@ -405,13 +405,11 @@ class MainWindow(QMainWindow):
         self.playlists_view = self._build_playlists_view()
         self.todo_view = self._build_todo_view()
         self.calendar_view = self._build_calendar_view()
-        self.graph_view = self._build_graph_view()
         self.notes_view = self._build_notes_view()
         self.content_stack.addWidget(self.projects_view)
         self.content_stack.addWidget(self.playlists_view)
         self.content_stack.addWidget(self.todo_view)
         self.content_stack.addWidget(self.calendar_view)
-        self.content_stack.addWidget(self.graph_view)
         self.content_stack.addWidget(self.notes_view)
         v.addWidget(self.content_stack, 1)
 
@@ -424,12 +422,6 @@ class MainWindow(QMainWindow):
         view.day_range_selected.connect(self._on_calendar_frame_attribute)  # a frame
         view.item_activated.connect(self._on_calendar_item_open)     # open the entity
         view.item_context.connect(self._on_calendar_item_context)
-        return view
-
-    def _build_graph_view(self) -> QWidget:
-        view = GraphView()
-        view.navigate_requested.connect(self._navigate_to)
-        view.open_links_requested.connect(self._open_links_for_ref)
         return view
 
     def _build_tab_bar(self) -> QWidget:
@@ -448,7 +440,6 @@ class MainWindow(QMainWindow):
             ("playlists", "Playlists"),
             ("todos", "Todo"),
             ("calendar", "Calendar"),
-            ("graph", "Graph"),
             ("notes", "Notes"),
         ]:
             b = QPushButton(label)
@@ -474,7 +465,6 @@ class MainWindow(QMainWindow):
             "playlists": self.playlists_view,
             "todos": self.todo_view,
             "calendar": self.calendar_view,
-            "graph": self.graph_view,
             "notes": self.notes_view,
         }.get(key, self.projects_view)
         cross_fade_stack(
@@ -483,9 +473,6 @@ class MainWindow(QMainWindow):
         if key == "calendar":
             self._refresh_calendar()      # immediate, from the in-memory graph
             self._rebuild_index_async()   # then fill in titles / search universe
-        elif key == "graph":
-            self._refresh_graph()
-            self._rebuild_index_async()
 
     def _build_projects_view(self) -> QWidget:
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -1302,7 +1289,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_command_palette)
         # Tab switching: Ctrl+1..6.
         for i, key in enumerate(
-            ("projects", "playlists", "todos", "calendar", "graph", "notes"), start=1
+            ("projects", "playlists", "todos", "calendar", "notes"), start=1
         ):
             QShortcut(QKeySequence(f"Ctrl+{i}"), self,
                       activated=partial(self._goto_tab, key))
@@ -3257,13 +3244,11 @@ class MainWindow(QMainWindow):
         self._entity_index = links_mod.index_entities(triples)
         if self.current_tab == "calendar":
             self._refresh_calendar()
-        elif self.current_tab == "graph":
-            self._refresh_graph()
 
     def _build_entity_index(self) -> dict:
         """Synchronous index build — for discrete actions (opening the Links
         dialog) where a fresh, complete search universe matters more than the
-        few-ms scan. The calendar/graph use the async cache instead."""
+        few-ms scan. The calendar uses the async cache instead."""
         folders = load_state().get("recent_folders")
         if not isinstance(folders, list):
             folders = []
@@ -3357,30 +3342,9 @@ class MainWindow(QMainWindow):
         fade_window(dlg, 1.0, duration=140)
 
     def _on_links_changed(self) -> None:
-        # Reflect new/removed links in whichever date/graph view is showing.
+        # Reflect new/removed links in the calendar when it's the visible tab.
         if self.current_tab == "calendar":
             self._refresh_calendar()
-        elif self.current_tab == "graph":
-            self._refresh_graph()
-
-    def _open_links_for_ref(self, ref) -> None:
-        label = _format_temporal(ref)
-        if label is None:
-            info = self._entity_index.get(ref)
-            label = info.title if info is not None else ref.key
-        self._open_links_dialog(ref, label)
-
-    def _refresh_graph(self) -> None:
-        self.graph_view.set_data(self._link_store, self._entity_index)
-        cur = self.graph_view.canvas.focus()
-        refs = self._link_store.all_refs()
-        if cur is not None and (cur.is_temporal or cur in self._entity_index):
-            self.graph_view.set_focus(cur)              # keep a valid focus
-        elif refs:
-            self.graph_view.set_focus(                  # default: most-connected
-                max(refs, key=lambda r: self._link_store.degree(r)))
-        else:
-            self.graph_view.set_focus(None)
 
     def _navigate_to(self, ref) -> None:
         """Open/reveal a linked entity — switching folders and tabs as needed."""

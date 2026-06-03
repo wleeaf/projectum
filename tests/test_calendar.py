@@ -312,6 +312,22 @@ def test_calendar_frame_attribute_opens_daterange_dialog(window, qapp, tmp_path)
     window._links_dialog.close()
 
 
+def test_monthgrid_hover_tracks_and_clears(qapp):
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from projectum.widgets import MonthGrid
+    g = MonthGrid(); g.resize(800, 600); g.set_month(2026, 6)
+    qapp.processEvents()
+    ox, oy, cw, ch = g._geom()
+    pos = QPointF(ox + cw / 2, oy + ch / 2)          # first cell
+    g.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton,
+                                 Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+    assert g._hover_day == g._day_at(pos)            # hover tracked
+    g.leaveEvent(QEvent(QEvent.Type.Leave))
+    assert g._hover_day is None                      # cleared on leave (no ghosting)
+    g.deleteLater()
+
+
 def test_calendar_unlink_date_from_day(window, qapp, tmp_path):
     fa = _folder(tmp_path, "work", ["alpha"])
     s = ProjectStore(fa); todo = s.add_todo("Task A"); s.save()
