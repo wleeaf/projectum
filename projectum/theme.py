@@ -681,6 +681,11 @@ QLabel#brandTag {{
     letter-spacing: 2px;
 }}
 
+QLabel#brandTag:hover {{
+    /* The author attribution links to github.com/wleeaf — brighten on hover. */
+    color: {TEXT};
+}}
+
 QPushButton {{
     background-color: {SURFACE_2};
     border: 1px solid {BORDER};

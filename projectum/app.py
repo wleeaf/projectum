@@ -36,7 +36,7 @@ from .anims import (
     SmoothScrollFilter,
 )
 from .widgets import (
-    BrandMark, CalendarScanRunnable, CalendarView, ColorPickerPopup,
+    BrandMark, CalendarScanRunnable, CalendarView, ClickableLabel, ColorPickerPopup,
     CommandPalette, CompletionToggle, FlowLayout, FrameWrapper, GitRunnable,
     IconButton, LinksDialog, MarkdownEditor, NoteRow, note_display, PlaylistRow,
     ProjectRow, SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar,
@@ -293,8 +293,12 @@ class MainWindow(QMainWindow):
         brand.setFont(bf)
         h.addWidget(brand)
 
-        by = QLabel("by wleeaf")
+        by = ClickableLabel("by wleeaf")
         by.setObjectName("brandTag")
+        by.setToolTip("Open github.com/wleeaf")
+        by.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/wleeaf"))
+        )
         h.addWidget(by)
 
         h.addStretch()
@@ -386,9 +390,13 @@ class MainWindow(QMainWindow):
         v.addLayout(row)
         v.addStretch()
 
-        foot = QLabel("MADE BY WLEEAF")
+        foot = ClickableLabel("MADE BY WLEEAF")
         foot.setObjectName("brandTag")
         foot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        foot.setToolTip("Open github.com/wleeaf")
+        foot.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/wleeaf"))
+        )
         v.addWidget(foot)
 
         return w

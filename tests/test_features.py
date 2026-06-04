@@ -173,6 +173,26 @@ def _marker_alpha(ed, line, off):
     return covering[-1].format.foreground().color().alpha() if covering else None
 
 
+def test_clickable_label_emits_clicked_within_bounds(qapp):
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from projectum.widgets import ClickableLabel
+    lbl = ClickableLabel("by wleeaf"); lbl.resize(80, 20)
+    fired = []
+    lbl.clicked.connect(lambda: fired.append(1))
+
+    def release(x, y):
+        ev = QMouseEvent(QEvent.Type.MouseButtonRelease, QPointF(x, y),
+                         Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier)
+        lbl.mouseReleaseEvent(ev)
+
+    release(10, 10)             # inside -> fires
+    release(500, 500)           # released off the label -> ignored
+    assert fired == [1]
+    lbl.deleteLater()
+
+
 def test_markdown_editor_conceals_markers_off_cursor_line(qapp):
     from projectum.widgets import MarkdownEditor
     ed = MarkdownEditor()

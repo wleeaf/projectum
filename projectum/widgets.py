@@ -849,6 +849,25 @@ class ColorPickerPopup(QWidget):
 # ──────────────── Brand mark + icon buttons ────────────────
 
 
+class ClickableLabel(QLabel):
+    """A QLabel that emits ``clicked`` on a left-button release within its
+    bounds and shows a pointing-hand cursor. Stays a plain-text label so the
+    object-name QSS (color, letter-spacing, …) still applies — unlike a rich
+    ``<a href>`` link."""
+
+    clicked = Signal()
+
+    def __init__(self, text: str = "", parent: QWidget | None = None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.rect().contains(event.position().toPoint())):
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
 class BrandMark(QWidget):
     """A 'W' painted in the current theme accent.
 
