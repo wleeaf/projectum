@@ -2930,6 +2930,97 @@ class CalendarView(QWidget):
         self._refresh_title()
 
 
+class DatePickerDialog(QWidget):
+    """A frameless, app-themed date picker built on the calendar's own month
+    grid — big centered day numbers, themed cells, month nav + Today. Replaces
+    the OS-native QDateEdit calendar popup. Click a day to pick it."""
+
+    picked = Signal(str)   # ISO "YYYY-MM-DD"
+
+    def __init__(self, parent=None, initial: str | None = None,
+                 title: str = "Pick a date"):
+        super().__init__(parent,
+                         Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        from datetime import date as _date
+        self.setObjectName("datePicker")
+        v = QVBoxLayout(self)
+        v.setContentsMargins(16, 14, 16, 16)
+        v.setSpacing(10)
+
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        tlabel = QLabel(title)
+        tlabel.setObjectName("linksTitle")
+        head.addWidget(tlabel)
+        head.addStretch(1)
+        today_btn = QPushButton("Today")
+        today_btn.setObjectName("calToday")
+        today_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        today_btn.clicked.connect(self._go_today)
+        head.addWidget(today_btn)
+        self._prev = _NavButton("left")
+        self._prev.clicked.connect(self._prev_month)
+        self._next = _NavButton("right")
+        self._next.clicked.connect(self._next_month)
+        self._title = QLabel("")
+        self._title.setObjectName("calMonthTitle")
+        self._title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._title.setMinimumWidth(150)
+        head.addWidget(self._prev)
+        head.addWidget(self._title)
+        head.addWidget(self._next)
+        v.addLayout(head)
+
+        self._grid = MonthGrid()
+        self._grid.set_bars_draggable(False)
+        self._grid.set_items([])
+        self._grid.day_clicked.connect(self._on_pick)
+        v.addWidget(self._grid, 1)
+
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("scheduleCancel")
+        cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel.clicked.connect(self.close)
+        v.addWidget(cancel, alignment=Qt.AlignmentFlag.AlignRight)
+
+        d0 = cal.parse_date(initial) if initial else None
+        d0 = d0 or _date.today()
+        self._grid.set_today(_date.today())
+        self._grid.set_month(d0.year, d0.month)
+        self._refresh_title()
+        self.resize(560, 480)
+
+    def _refresh_title(self) -> None:
+        y, m = self._grid.year_month()
+        self._title.setText(f"{MONTH_NAMES[m]} {y}")
+
+    def _prev_month(self) -> None:
+        y, m = _shift_month(*self._grid.year_month(), -1)
+        self._grid.set_month(y, m)
+        self._refresh_title()
+
+    def _next_month(self) -> None:
+        y, m = _shift_month(*self._grid.year_month(), 1)
+        self._grid.set_month(y, m)
+        self._refresh_title()
+
+    def _go_today(self) -> None:
+        from datetime import date as _date
+        t = _date.today()
+        self._grid.set_month(t.year, t.month)
+        self._refresh_title()
+
+    def _on_pick(self, day) -> None:
+        self.picked.emit(day.isoformat())
+        self.close()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
+
 class ScheduleDialog(QWidget):
     """Frameless popup to set or clear an item's inclusive start/end dates.
 
@@ -3116,7 +3207,7 @@ class LinksDialog(QWidget):
     navigate = Signal(object)    # open/navigate to a linked EntityRef
 
     def __init__(self, subject_ref, subject_title, store, index, parent=None,
-                 allow_range=False):
+                 allow_range=False, kind_filter=None):
         super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
         from PySide6.QtWidgets import QDateEdit
         from PySide6.QtCore import QDate, QLocale
@@ -3125,7 +3216,13 @@ class LinksDialog(QWidget):
         self._ref = subject_ref
         self._store = store
         self._index = index
+        # When set (e.g. "playlist"), the panel becomes a focused "Relate to a
+        # playlist" picker: search is filtered to that kind and the date/
+        # duration controls (entity→temporal) are hidden.
+        self._kind_filter = kind_filter
+        self._date_picker = None
         self._en = QLocale(QLocale.Language.English)
+        kind_word = KIND_LABEL.get(kind_filter, kind_filter or "").lower()
         # When attributing a single day from the calendar, let the user extend
         # it into a date frame right here by picking a later End date.
         self._range_start = (subject_ref.key
@@ -3135,7 +3232,7 @@ class LinksDialog(QWidget):
         v.setContentsMargins(22, 18, 22, 18)
         v.setSpacing(12)
 
-        title = QLabel("Links")
+        title = QLabel(f"Relate to a {kind_word}" if kind_filter else "Links")
         title.setObjectName("linksTitle")
         v.addWidget(title)
         self._sub = QLabel(
@@ -3192,12 +3289,14 @@ class LinksDialog(QWidget):
 
         # Add by searching entities — results are always visible (fixed height)
         # so showing/hiding them can't move the search box.
-        add_lbl = QLabel("Add a link")
+        add_lbl = QLabel(f"Pick a {kind_word}" if kind_filter else "Add a link")
         add_lbl.setObjectName("linksSectionLabel")
         v.addWidget(add_lbl)
         self._search = QLineEdit()
         self._search.setObjectName("linksSearch")
-        self._search.setPlaceholderText("Search projects, playlists, todos…")
+        self._search.setPlaceholderText(
+            f"Search {kind_word}s…" if kind_filter
+            else "Search projects, playlists, todos…")
         self._search.textChanged.connect(self._on_search)
         self._search.returnPressed.connect(self._add_top_result)  # Enter -> attach top match
         v.addWidget(self._search)
@@ -3208,28 +3307,21 @@ class LinksDialog(QWidget):
         self._results.itemClicked.connect(self._add_from_result)
         v.addWidget(self._results)
 
-        # Add a date link. (Only meaningful for an entity subject — hidden when
-        # the subject is itself a date/frame/duration.)
+        # Add a date link via the themed in-app picker (never the OS-native
+        # calendar popup). Hidden when the subject is itself temporal.
         self._date_row_w = QWidget()
         date_row = QHBoxLayout(self._date_row_w)
         date_row.setContentsMargins(0, 0, 0, 0)
         date_row.setSpacing(8)
-        en = self._en
-        self._date = QDateEdit()
-        self._date.setObjectName("scheduleDate")
-        self._date.setLocale(en)
-        self._date.setCalendarPopup(True)
-        self._date.setDisplayFormat("ddd, MMM d yyyy")
-        self._date.setDate(QDate.currentDate())
-        cw = self._date.calendarWidget()
-        if cw is not None:
-            cw.setLocale(en)
-        date_row.addWidget(self._date, 1)
-        add_date = QPushButton("Link date")
-        add_date.setObjectName("linksAddDate")
-        add_date.setCursor(Qt.CursorShape.PointingHandCursor)
-        add_date.clicked.connect(self._add_date)
-        date_row.addWidget(add_date)
+        dlbl = QLabel("Date")
+        dlbl.setObjectName("scheduleFieldLabel")
+        date_row.addWidget(dlbl)
+        date_row.addStretch(1)
+        pick_date = QPushButton("Pick a date…")
+        pick_date.setObjectName("linksAddDate")
+        pick_date.setCursor(Qt.CursorShape.PointingHandCursor)
+        pick_date.clicked.connect(self._open_date_picker)
+        date_row.addWidget(pick_date)
         v.addWidget(self._date_row_w)
 
         # Add a duration ("delta time") — pick a count + a whole unit.
@@ -3254,7 +3346,7 @@ class LinksDialog(QWidget):
         dur_row.addWidget(add_dur)
         v.addWidget(self._dur_row_w)
 
-        if subject_ref.is_temporal:
+        if subject_ref.is_temporal or kind_filter:
             self._date_row_w.setVisible(False)
             self._dur_row_w.setVisible(False)
 
@@ -3324,6 +3416,8 @@ class LinksDialog(QWidget):
         for ref, info in self._index.items():
             if ref == self._ref or ref in linked:
                 continue
+            if self._kind_filter and ref.kind != self._kind_filter:
+                continue
             if not text or text in info.title.casefold() or text in info.kind:
                 matches.append((info.title, ref))
         matches.sort(key=lambda m: m[0].casefold())
@@ -3339,8 +3433,20 @@ class LinksDialog(QWidget):
             self._refresh_links()
             self._search.clear()
 
-    def _add_date(self) -> None:
-        iso = self._date.date().toString(Qt.DateFormat.ISODate)
+    def _open_date_picker(self) -> None:
+        initial = self._ref.key if self._ref.is_date else None
+        self._date_picker = DatePickerDialog(self, initial=initial,
+                                             title="Relate to a date")
+        self._date_picker.picked.connect(self._on_date_picked)
+        self._date_picker.adjustSize()
+        center = self.frameGeometry().center()
+        self._date_picker.move(center.x() - self._date_picker.width() // 2,
+                               center.y() - self._date_picker.height() // 2)
+        self._date_picker.show()
+        self._date_picker.raise_()
+        self._date_picker.activateWindow()
+
+    def _on_date_picked(self, iso: str) -> None:
         if self._store.add(self._ref, links_mod.date_ref(iso)):
             self.changed.emit()
             self._refresh_links()

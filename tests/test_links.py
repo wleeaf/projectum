@@ -120,7 +120,7 @@ def test_links_dialog_add_search_date_and_remove(qapp, tmp_path):
     pl = make_ref("playlist", "/r/B", "p1")
     assert store.has(subject, pl) and changed
 
-    dlg._add_date()                              # add a date link (today)
+    dlg._on_date_picked("2026-06-10")            # date chosen in the themed picker
     assert any(r.is_date for r in store.neighbors(subject))
 
     dlg._remove(pl)                              # remove via the dialog
@@ -177,6 +177,24 @@ def test_links_dialog_enter_attaches_top_match(qapp, tmp_path):
     d.deleteLater()
 
 
+def test_links_dialog_kind_filter_narrows_search(qapp, tmp_path):
+    from PySide6.QtCore import Qt
+    from projectum.widgets import LinksDialog
+    store = LinkStore(tmp_path / "l.json")
+    subj = make_ref("todo", "/r", "u1")
+    idx = index_entities([
+        ("/r", "project", "alpha", "Alpha"),
+        ("/r", "playlist", "p1", "Rust deep dive"),
+        ("/r", "todo", "t2", "Other todo"),
+    ])
+    dlg = LinksDialog(subj, "T", store, idx, kind_filter="playlist")
+    kinds = {dlg._results.item(i).data(Qt.ItemDataRole.UserRole).kind
+             for i in range(dlg._results.count())}
+    assert kinds == {"playlist"}                       # only playlists offered
+    assert dlg._date_row_w.isHidden() and dlg._dur_row_w.isHidden()
+    dlg.deleteLater()
+
+
 def test_open_links_dialog_indexes_cross_folder(window, qapp, tmp_path):
     fa = tmp_path / "work"; fa.mkdir(); (fa / "alpha").mkdir()
     fb = tmp_path / "media"; fb.mkdir(); (fb / "beta").mkdir()
@@ -221,45 +239,36 @@ def test_navigate_to_cross_folder(window, qapp, tmp_path):
     assert window.current_tab == "projects"
 
 
-def test_quick_relate_logic(window, qapp, tmp_path):
-    fa = tmp_path / "work"; fa.mkdir()
-    (fa / "alpha").mkdir(); (fa / "beta").mkdir()
-    ProjectStore(fa).save()
-    from projectum.app import load_state, save_state
-    st = load_state(); st["recent_folders"] = [str(fa)]; save_state(st)
-    window.load_folder(fa); qapp.processEvents()
-
-    todo_ref = make_ref("todo", str(fa), "t1")
-    rows = window._relatable_projects(todo_ref)
-    assert {title for _r, title, _l in rows} == {"alpha", "beta"}
-    assert all(not linked for _r, _t, linked in rows)        # nothing related yet
-
-    # _relate creates the undirected link.
-    alpha_ref = make_ref("project", str(fa), "alpha")
-    window._relate(todo_ref, alpha_ref)
-    assert window._link_store.has(todo_ref, alpha_ref)
-    assert any(r == alpha_ref and linked
-               for r, _t, linked in window._relatable_projects(todo_ref))
-
-    # A project subject excludes itself from the list.
-    rows3 = window._relatable_projects(alpha_ref)
-    assert alpha_ref not in [r for r, _t, _l in rows3]
-    assert "beta" in {title for _r, title, _l in rows3}
-
-
-def test_quick_relate_date_action_only_for_non_dates(window, qapp, tmp_path):
+def test_relate_menu_routes_to_themed_panels(window, qapp, tmp_path):
     from PySide6.QtWidgets import QMenu
     fa = tmp_path / "work"; fa.mkdir(); (fa / "alpha").mkdir()
     ProjectStore(fa).save()
     window.load_folder(fa); qapp.processEvents()
 
-    def offers_date(subject_ref):
-        menu = QMenu(window)
-        window._add_relate_actions(menu, subject_ref)
-        return any(a.text() == "Relate to date…" for a in menu.actions())
+    # The menu wires a single 'Relate to' submenu (fixed, scalable) — not a
+    # per-instance list. (QAction.menu() is unreliable here, so check text.)
+    menu = QMenu(window)
+    window._add_relate_actions(menu, make_ref("todo", str(fa), "t1"), "Task A")
+    assert any(a.text() == "Relate to" for a in menu.actions())
 
-    assert offers_date(make_ref("todo", str(fa), "t1"))   # entity subject -> offered
-    assert not offers_date(date_ref("2026-06-10"))        # date subject -> omitted
+    # Relate-to-a-kind opens the kind-filtered LinksDialog panel.
+    window._open_links_dialog(make_ref("todo", str(fa), "t1"), "Task A",
+                              kind_filter="playlist")
+    qapp.processEvents()
+    assert window._links_dialog._kind_filter == "playlist"
+    window._links_dialog.close(); qapp.processEvents()
+
+
+def test_relate_date_picker_creates_link(window, qapp, tmp_path):
+    fa = tmp_path / "work"; fa.mkdir(); (fa / "alpha").mkdir()
+    ProjectStore(fa).save()
+    window.load_folder(fa); qapp.processEvents()
+    subject = make_ref("todo", str(fa), "t1")
+    window._open_relate_date_picker(subject)         # opens the themed picker
+    qapp.processEvents()
+    window._relate_date_picker.picked.emit("2026-06-10")   # user clicks a day
+    assert window._link_store.has(subject, date_ref("2026-06-10"))
+    window._relate_date_picker.close()
 
 
 def test_prune_links_on_todo_delete(window, qapp, tmp_path):

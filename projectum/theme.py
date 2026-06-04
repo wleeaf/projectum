@@ -1344,7 +1344,7 @@ QPushButton#scheduleClear:disabled {{
 }}
 
 /* ── Links dialog ── */
-QWidget#linksDialog {{
+QWidget#linksDialog, QWidget#datePicker {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
     border-radius: 14px;

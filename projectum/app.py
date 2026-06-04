@@ -37,11 +37,11 @@ from .anims import (
 )
 from .widgets import (
     BrandMark, CalendarScanRunnable, CalendarView, ClickableLabel, ColorPickerPopup,
-    CommandPalette, CompletionToggle, FlowLayout, FrameWrapper, GitRunnable,
-    IconButton, LinksDialog, MarkdownEditor, NoteRow, note_display, PlaylistRow,
-    ProjectRow, SettingsDialog, SizeRunnable, TagChip, TagEditor, TitleBar,
-    TodoRow, UpdateBanner, VideoRow, WindowControlButton, _format_date_iso,
-    _format_temporal,
+    CommandPalette, CompletionToggle, DatePickerDialog, FlowLayout, FrameWrapper,
+    GitRunnable, IconButton, KIND_LABEL, LinksDialog, MarkdownEditor, NoteRow,
+    note_display, PlaylistRow, ProjectRow, SettingsDialog, SizeRunnable, TagChip,
+    TagEditor, TitleBar, TodoRow, UpdateBanner, VideoRow, WindowControlButton,
+    _format_date_iso, _format_temporal,
 )
 from .youtube import PlaylistFetchRunnable
 from .update import UpdateCheckRunnable
@@ -1771,7 +1771,7 @@ class MainWindow(QMainWindow):
         menu.addAction(toggle)
         menu.addSeparator()
         subject = make_ref("project", str(self.store.root), project.name)
-        self._add_relate_actions(menu, subject)
+        self._add_relate_actions(menu, subject, project.name)
         relate = QAction("Links…", menu)
         relate.triggered.connect(partial(self._open_links_dialog, subject, project.name))
         menu.addAction(relate)
@@ -3404,7 +3404,7 @@ class MainWindow(QMainWindow):
         op.triggered.connect(lambda: self._navigate_to(ref))
         menu.addAction(op)
         menu.addSeparator()
-        self._add_relate_actions(menu, ref)
+        self._add_relate_actions(menu, ref, item.title or ref.key)
         lk = QAction("Links…", menu)
         lk.triggered.connect(lambda: self._open_links_dialog(ref, item.title or ref.key))
         menu.addAction(lk)
@@ -3420,95 +3420,63 @@ class MainWindow(QMainWindow):
 
     # ─── Quick relate (context-menu shortcuts) ───────────────────
 
-    def _relatable_projects(self, subject_ref) -> list:
-        """``(ref, title, already_linked)`` for every project the subject could
-        be related to — all projects across tracked folders except the subject
-        itself, sorted by title."""
-        index = self._build_entity_index()
-        rows = [
-            (ref, info.title, self._link_store.has(subject_ref, ref))
-            for ref, info in index.items()
-            if ref.kind == "project" and ref != subject_ref
-        ]
-        rows.sort(key=lambda r: r[1].casefold())
-        return rows
-
-    def _add_relate_actions(self, menu, subject_ref) -> None:
-        """Add quick 'Relate to project ▸' and 'Relate to date…' items to a
-        right-click menu — a faster path than the full Links dialog. Available
-        on todos, projects, and calendar days/items."""
-        proj_menu = menu.addMenu("Relate to project")
-        projects = self._relatable_projects(subject_ref)
-        if projects:
-            for ref, title, linked in projects:
-                act = proj_menu.addAction(f"{title}  ✓" if linked else title)
-                if linked:
-                    act.setEnabled(False)   # already related
-                else:
-                    act.triggered.connect(partial(self._relate, subject_ref, ref))
-        else:
-            proj_menu.addAction("No projects").setEnabled(False)
-        # Relating a date to a date is meaningless — only offer it otherwise.
+    def _add_relate_actions(self, menu, subject_ref, subject_title: str) -> None:
+        """Add a 'Relate to ▸' submenu (Project / Playlist / Todo / Date) to a
+        right-click menu. Each opens a themed, searchable panel — a scalable
+        path that works for any subject (todo, project, calendar day/item)."""
+        sub = menu.addMenu("Relate to")
+        for kind in ("project", "playlist", "todo"):
+            act = sub.addAction(KIND_LABEL.get(kind, kind))
+            act.triggered.connect(partial(
+                self._open_links_dialog, subject_ref, subject_title, kind_filter=kind))
+        # Relating a date to a date is meaningless — only offer Date otherwise.
         if not subject_ref.is_calendar:
-            menu.addAction("Relate to date…").triggered.connect(
-                partial(self._relate_to_date, subject_ref)
-            )
+            sub.addSeparator()
+            sub.addAction("Date…").triggered.connect(
+                partial(self._open_relate_date_picker, subject_ref))
 
     def _relate(self, a, b) -> None:
         if self._link_store.add(a, b):
             self._on_links_changed()
 
-    def _relate_to_date(self, subject_ref) -> None:
-        iso = self._pick_date()
-        if iso:
-            self._relate(subject_ref, links_mod.date_ref(iso))
-
-    def _pick_date(self) -> str | None:
-        """A small modal to pick a date — uses QDateEdit (calendar popup) so the
-        control matches the Links dialog. Returns an ISO date or None."""
-        from PySide6.QtCore import QDate
-        from PySide6.QtWidgets import (
-            QDateEdit, QDialog, QDialogButtonBox, QLabel, QVBoxLayout,
-        )
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Relate to date")
-        lay = QVBoxLayout(dlg)
-        lay.addWidget(QLabel("Pick a date to relate to:"))
-        edit = QDateEdit(QDate.currentDate())
-        edit.setCalendarPopup(True)
-        edit.setDisplayFormat("ddd, MMM d yyyy")
-        lay.addWidget(edit)
-        bb = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        bb.accepted.connect(dlg.accept)
-        bb.rejected.connect(dlg.reject)
-        lay.addWidget(bb)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            return edit.date().toString("yyyy-MM-dd")
-        return None
+    def _open_relate_date_picker(self, subject_ref) -> None:
+        """Pop the themed in-app date picker; relate the subject to the day picked."""
+        picker = DatePickerDialog(self, title="Relate to a date")
+        self._relate_date_picker = picker   # hold a ref while it's open
+        picker.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        picker.picked.connect(
+            lambda iso: self._relate(subject_ref, links_mod.date_ref(iso)))
+        picker.adjustSize()
+        center = self.frameGeometry().center()
+        picker.move(center.x() - picker.width() // 2,
+                    center.y() - picker.height() // 2)
+        picker.show()
+        picker.raise_()
+        picker.activateWindow()
 
     def _on_calendar_day_context(self, day, global_pos) -> None:
         ref = links_mod.date_ref(day.isoformat())
+        label = _format_date_iso(day.isoformat())
         menu = QMenu(self)
-        self._add_relate_actions(menu, ref)
+        self._add_relate_actions(menu, ref, label)
         menu.addSeparator()
         attr = QAction("Attribute this day…", menu)
         attr.triggered.connect(lambda: self._open_links_dialog(
-            ref, _format_date_iso(day.isoformat()), allow_range=True))
+            ref, label, allow_range=True))
         menu.addAction(attr)
         menu.exec(global_pos)
 
     # ─── Relations (links) ───────────────────────────────────────
 
-    def _open_links_dialog(self, ref, title: str, allow_range: bool = False) -> None:
+    def _open_links_dialog(self, ref, title: str, allow_range: bool = False,
+                           kind_filter: str | None = None) -> None:
         if self._links_dialog is not None and self._links_dialog.isVisible():
             self._links_dialog.raise_()
             self._links_dialog.activateWindow()
             return
         index = self._build_entity_index()
         dlg = LinksDialog(ref, title, self._link_store, index, parent=self,
-                          allow_range=allow_range)
+                          allow_range=allow_range, kind_filter=kind_filter)
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dlg.changed.connect(self._on_links_changed)
         dlg.navigate.connect(self._navigate_to)
@@ -3592,7 +3560,7 @@ class MainWindow(QMainWindow):
             return
         subject = make_ref("todo", str(self.store.root), tid)
         menu = QMenu(self)
-        self._add_relate_actions(menu, subject)
+        self._add_relate_actions(menu, subject, todo.text)
         menu.addSeparator()
         relate = QAction("Links…", menu)
         relate.triggered.connect(partial(self._open_links_dialog, subject, todo.text))
