@@ -3199,6 +3199,63 @@ class _LinkRow(QWidget):
             super().mousePressEvent(event)
 
 
+class _RelatedChip(QWidget):
+    """A compact chip for one related entity: kind dot + label. Read-only — a
+    left click navigates when the target is navigable (everything but a bare
+    duration). Theme colors come from QSS + the custom-painted dot, so a theme
+    switch needs no rebuild."""
+
+    clicked = Signal(object)   # the neighbour EntityRef
+
+    def __init__(self, ref, label: str, navigable: bool, parent=None):
+        super().__init__(parent)
+        self._ref = ref
+        self._navigable = navigable
+        self.setObjectName("relatedChip")
+        if navigable:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setToolTip("Open")
+        h = QHBoxLayout(self)
+        h.setContentsMargins(9, 4, 11, 4)
+        h.setSpacing(7)
+        h.addWidget(_KindDot(ref.kind))
+        lbl = QLabel(label)
+        lbl.setObjectName("relatedChipLabel")
+        h.addWidget(lbl)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if self._navigable and event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self._ref)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+
+class RelatedStrip(QWidget):
+    """A wrapping strip of chips for an entity's current links — see and jump to
+    what it's related to, inline in a detail panel."""
+
+    navigate = Signal(object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._flow = FlowLayout(self, spacing=6)
+
+    def set_links(self, entries) -> None:
+        """``entries``: iterable of ``(ref, label, navigable)``. Rebuilds the chips."""
+        while self._flow.count():
+            item = self._flow.takeAt(0)
+            w = item.widget() if item is not None else None
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+        for ref, label, navigable in entries:
+            chip = _RelatedChip(ref, label, navigable)
+            chip.clicked.connect(self.navigate.emit)
+            self._flow.addWidget(chip)
+        self.updateGeometry()
+
+
 class LinksDialog(QWidget):
     """Manage one entity's relations: see/remove current links, add a link to
     another entity (searched across tracked folders) or to a date."""

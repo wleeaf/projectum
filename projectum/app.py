@@ -39,9 +39,9 @@ from .widgets import (
     BrandMark, CalendarScanRunnable, CalendarView, ClickableLabel, ColorPickerPopup,
     CommandPalette, CompletionToggle, DatePickerDialog, FlowLayout, FrameWrapper,
     GitRunnable, IconButton, KIND_LABEL, LinksDialog, MarkdownEditor, NoteRow,
-    note_display, PlaylistRow, ProjectRow, SettingsDialog, SizeRunnable, TagChip,
-    TagEditor, TitleBar, TodoRow, UpdateBanner, VideoRow, WindowControlButton,
-    _format_date_iso, _format_temporal,
+    note_display, PlaylistRow, ProjectRow, RelatedStrip, SettingsDialog,
+    SizeRunnable, TagChip, TagEditor, TitleBar, TodoRow, UpdateBanner, VideoRow,
+    WindowControlButton, _format_date_iso, _format_temporal,
 )
 from .youtube import PlaylistFetchRunnable
 from .update import UpdateCheckRunnable
@@ -659,6 +659,9 @@ class MainWindow(QMainWindow):
         dv.addWidget(self.tag_palette_wrap)
         dv.addSpacing(20)
 
+        self.project_related_wrap, self.project_related = self._make_related_section()
+        dv.addWidget(self.project_related_wrap)
+
         notes_label = QLabel("NOTES")
         notes_label.setObjectName("sectionLabel")
         dv.addWidget(notes_label)
@@ -856,6 +859,9 @@ class MainWindow(QMainWindow):
         pp_outer.addWidget(self.playlist_palette_inner)
         self.playlist_palette_wrap.setVisible(False)
         left_col.addWidget(self.playlist_palette_wrap)
+        left_col.addSpacing(14)
+        self.playlist_related_wrap, self.playlist_related = self._make_related_section()
+        left_col.addWidget(self.playlist_related_wrap)
         left_col.addStretch(1)
 
         header_row.addLayout(left_col, 3)
@@ -1011,6 +1017,9 @@ class MainWindow(QMainWindow):
         self.note_title_edit.textChanged.connect(self._on_note_title_changed)
         pv.addWidget(self.note_title_edit)
 
+        self.note_related_wrap, self.note_related = self._make_related_section()
+        pv.addWidget(self.note_related_wrap)
+
         self.note_body_edit = MarkdownEditor()
         self.note_body_edit.setPlaceholderText(
             "Start writing… Markdown renders as you type."
@@ -1080,6 +1089,8 @@ class MainWindow(QMainWindow):
             self.note_body_edit.setPlainText(note.body)
         finally:
             self._loading_note = False
+        self._populate_related(self.note_related, self.note_related_wrap,
+                               make_ref("note", str(self.store.root), note.id))
         self.note_detail_stack.setCurrentIndex(1)
 
     def _on_note_title_changed(self, _text: str = "") -> None:
@@ -2046,6 +2057,8 @@ class MainWindow(QMainWindow):
             self._rebuild_tags()
         finally:
             self._loading_details = False
+        self._populate_related(self.project_related, self.project_related_wrap,
+                               make_ref("project", str(self.store.root), p.name))
         # Kick off async size + git probes off the UI thread.
         self._size_pending_for = p.name
         runnable = SizeRunnable(p.name, Path(p.path))
@@ -2642,6 +2655,8 @@ class MainWindow(QMainWindow):
         # a no-op when start == target, so this is free on idempotent loads.
         animate_progress(self.pl_progress, pl.percent, duration=320)
         self._rebuild_playlist_tags()
+        self._populate_related(self.playlist_related, self.playlist_related_wrap,
+                               make_ref("playlist", str(self.store.root), pl.id))
         self._rebuild_video_list(pl)
         self._set_video_notes_state(None)
         # Derive the Refresh button state from whether THIS playlist has a
@@ -3501,9 +3516,68 @@ class MainWindow(QMainWindow):
         fade_window(dlg, 1.0, duration=140)
 
     def _on_links_changed(self) -> None:
-        # Reflect new/removed links in the calendar when it's the visible tab.
+        # Reflect new/removed links in the calendar when it's the visible tab,
+        # and in the inline "Related" strips of the open detail panels.
         if self.current_tab == "calendar":
             self._refresh_calendar()
+        self._refresh_related_panels()
+
+    # ─── Inline "Related" strips ─────────────────────────────────
+
+    def _make_related_section(self):
+        """A hidden-until-populated 'RELATED' section: a label over a wrapping
+        strip of clickable chips. Returns ``(wrap_widget, strip)``."""
+        wrap = QWidget()
+        lay = QVBoxLayout(wrap)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)
+        lbl = QLabel("RELATED")
+        lbl.setObjectName("sectionLabel")
+        lay.addWidget(lbl)
+        strip = RelatedStrip()
+        strip.navigate.connect(self._navigate_to)
+        lay.addWidget(strip)
+        lay.addSpacing(20)
+        wrap.setVisible(False)
+        return wrap, strip
+
+    def _related_entries(self, subject_ref) -> list:
+        """``(ref, label, navigable)`` for each of the subject's links, resolved
+        from the warm entity index (bare durations are not navigable)."""
+        out = []
+        for ref in self._link_store.neighbors(subject_ref):
+            temporal = _format_temporal(ref)
+            if temporal is not None:
+                label = temporal
+            else:
+                info = self._entity_index.get(ref)
+                label = info.title if info is not None else ref.key
+            out.append((ref, label, ref.kind != links_mod.KIND_DELTA))
+        out.sort(key=lambda e: e[1].casefold())
+        return out
+
+    def _populate_related(self, strip, wrap, subject_ref) -> None:
+        entries = self._related_entries(subject_ref)
+        strip.set_links(entries)
+        wrap.setVisible(bool(entries))
+
+    def _refresh_related_panels(self) -> None:
+        """Repopulate the Related strips for whatever is currently selected."""
+        if not self.store:
+            return
+        root = str(self.store.root)
+        if self.current_project:
+            self._populate_related(
+                self.project_related, self.project_related_wrap,
+                make_ref("project", root, self.current_project.name))
+        if self.current_playlist:
+            self._populate_related(
+                self.playlist_related, self.playlist_related_wrap,
+                make_ref("playlist", root, self.current_playlist.id))
+        if self.current_note:
+            self._populate_related(
+                self.note_related, self.note_related_wrap,
+                make_ref("note", root, self.current_note.id))
 
     def _navigate_to(self, ref) -> None:
         """Open/reveal a linked entity — switching folders and tabs as needed."""

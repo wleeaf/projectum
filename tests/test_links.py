@@ -271,6 +271,44 @@ def test_relate_date_picker_creates_link(window, qapp, tmp_path):
     window._relate_date_picker.close()
 
 
+def test_inline_related_entries_and_strip(window, qapp, tmp_path):
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from projectum.widgets import RelatedStrip
+    fa = tmp_path / "work"; fa.mkdir()
+    (fa / "web-client").mkdir(); (fa / "auth-service").mkdir()
+    ProjectStore(fa).save()
+    from projectum.app import load_state, save_state
+    st = load_state(); st["recent_folders"] = [str(fa)]; save_state(st)
+    window.load_folder(fa); qapp.processEvents()
+
+    wc = make_ref("project", str(fa), "web-client")
+    auth = make_ref("project", str(fa), "auth-service")
+    window._link_store.add(wc, auth)
+    window._link_store.add(wc, date_ref("2026-06-16"))
+    window._link_store.add(wc, delta_from_unit(2, "weeks"))
+
+    entries = window._related_entries(wc)
+    navmap = {label: nav for _ref, label, nav in entries}
+    assert len(entries) == 3
+    assert navmap.get("auth-service") is True       # entity -> navigable
+    assert navmap.get("2 weeks") is False           # bare duration -> not navigable
+
+    # The strip renders one chip per entry and forwards a chip click as navigate.
+    strip = RelatedStrip()
+    got = []
+    strip.navigate.connect(got.append)
+    strip.set_links(entries)
+    assert strip._flow.count() == len(entries)
+    chip = next(strip._flow.itemAt(i).widget() for i in range(strip._flow.count())
+                if strip._flow.itemAt(i).widget()._ref == auth)
+    chip.mousePressEvent(QMouseEvent(
+        QEvent.Type.MouseButtonPress, QPointF(5, 5), Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+    assert got == [auth]
+    strip.deleteLater()
+
+
 def test_notes_are_first_class_relatable(window, qapp, tmp_path):
     fa = tmp_path / "work"; fa.mkdir(); (fa / "alpha").mkdir()
     s = ProjectStore(fa); note = s.add_note("Design doc", "body"); s.save()

@@ -1391,6 +1391,18 @@ QLabel#linkRowKind {{
     font-weight: 600;
 }}
 
+QWidget#relatedChip {{
+    background-color: {SURFACE_2};
+    border: 1px solid {BORDER};
+    border-radius: 13px;
+}}
+
+QLabel#relatedChipLabel {{
+    color: {TEXT};
+    background: transparent;
+    font-size: {max(size - 1, 9)}px;
+}}
+
 QLineEdit#linksSearch {{
     background-color: {SURFACE_2};
     color: {TEXT};
