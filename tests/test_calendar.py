@@ -269,7 +269,7 @@ def test_bar_drag_move_emits_reschedule(qapp):
     target = QPointF(ox + 5 * cw + cw / 2, press.y())   # col 5 -> Jun 6 (+3 days)
 
     def ev(t, pos, buttons):
-        return QMouseEvent(t, pos, Qt.MouseButton.LeftButton, buttons,
+        return QMouseEvent(t, pos, pos, Qt.MouseButton.LeftButton, buttons,
                            Qt.KeyboardModifier.NoModifier)
 
     g.mousePressEvent(ev(QEvent.Type.MouseButtonPress, press, Qt.MouseButton.LeftButton))
@@ -320,7 +320,7 @@ def test_monthgrid_hover_tracks_and_clears(qapp):
     qapp.processEvents()
     ox, oy, cw, ch = g._geom()
     pos = QPointF(ox + cw / 2, oy + ch / 2)          # first cell
-    g.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton,
+    g.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, pos, pos, Qt.MouseButton.NoButton,
                                  Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
     assert g._hover_day == g._day_at(pos)            # hover tracked
     g.leaveEvent(QEvent(QEvent.Type.Leave))
@@ -339,7 +339,7 @@ def test_monthgrid_right_click_day_emits_day_context(qapp):
     got = []
     g.day_context.connect(lambda d, _p: got.append(d))
     g.mousePressEvent(QMouseEvent(
-        QEvent.Type.MouseButtonPress, pos, Qt.MouseButton.RightButton,
+        QEvent.Type.MouseButtonPress, pos, pos, Qt.MouseButton.RightButton,
         Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier))
     assert got == [g._day_at(pos)] and g._day_at(pos) is not None
     assert g._day_sel is None                        # right-click starts no selection
@@ -371,7 +371,7 @@ def test_bar_click_without_drag_activates(qapp):
     press = g._bar_rect(g._bars[0]).center()
 
     def ev(t, buttons):
-        return QMouseEvent(t, press, Qt.MouseButton.LeftButton, buttons,
+        return QMouseEvent(t, press, press, Qt.MouseButton.LeftButton, buttons,
                            Qt.KeyboardModifier.NoModifier)
 
     g.mousePressEvent(ev(QEvent.Type.MouseButtonPress, Qt.MouseButton.LeftButton))

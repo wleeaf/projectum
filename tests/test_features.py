@@ -182,7 +182,7 @@ def test_clickable_label_emits_clicked_within_bounds(qapp):
     lbl.clicked.connect(lambda: fired.append(1))
 
     def release(x, y):
-        ev = QMouseEvent(QEvent.Type.MouseButtonRelease, QPointF(x, y),
+        ev = QMouseEvent(QEvent.Type.MouseButtonRelease, QPointF(x, y), QPointF(x, y),
                          Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
                          Qt.KeyboardModifier.NoModifier)
         lbl.mouseReleaseEvent(ev)

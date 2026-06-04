@@ -303,8 +303,9 @@ def test_inline_related_entries_and_strip(window, qapp, tmp_path):
     chip = next(strip._flow.itemAt(i).widget() for i in range(strip._flow.count())
                 if strip._flow.itemAt(i).widget()._ref == auth)
     chip.mousePressEvent(QMouseEvent(
-        QEvent.Type.MouseButtonPress, QPointF(5, 5), Qt.MouseButton.LeftButton,
-        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+        QEvent.Type.MouseButtonPress, QPointF(5, 5), QPointF(5, 5),
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier))
     assert got == [auth]
     strip.deleteLater()
 
