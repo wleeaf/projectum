@@ -3,6 +3,21 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] — 2026-06-04
+
+### Added
+
+- **Relate anything to anything, from a themed panel.** Right-click a project, playlist, todo, note, or a calendar day and pick **Relate to ▸** — Project, Playlist, Todo, Note, or Date. Each opens an in-app panel rather than a sprawling submenu: the entity kinds give you a searchable, scrollable list (scales to hundreds of items), and **Date** opens a themed calendar picker built on Projectum's own month grid — no more OS-native date popup. **Links…** stays as the full see-and-remove view.
+- **Notes are first-class in the relation graph.** Notes are now linkable like everything else — relate a note to a project, a date, another note, whatever — searchable in the relate panels, with their own relate menu, and their links are pruned when the note is deleted.
+- **An inline "Related" view.** The project, playlist, and note detail panels now show a strip of clickable chips for what an item is linked to (color-coded by kind), so you can see and jump to relations without opening a dialog. Bare durations appear but aren't clickable.
+- **The "by wleeaf" attribution is now a link** to the author's GitHub (in the title bar and the welcome footer).
+
+### Changed
+
+- The date picker used anywhere you attach a date is now the in-app themed calendar instead of the platform's native control.
+
+[1.9.0]: https://github.com/wleeaf/projectum/releases/tag/v1.9.0
+
 ## [1.8.0] — 2026-06-04
 
 ### Added
