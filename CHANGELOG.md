@@ -3,6 +3,27 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] — 2026-06-04
+
+### Added
+
+- **Relations — connect anything to anything.** Right-click a project, playlist, or todo and pick **Links…** to attach it to another entity, to a calendar day, to a span of days (a date frame), or to a bare duration like "2 weeks". Links are undirected and untyped — open the other side later and the first shows up as a backlink. They're stored globally (`~/.config/projectum/links.json`), so they reach across every folder you've opened. The add box is a focused search: type and press Enter to attach the top match.
+- **Calendar tab.** A month view that's a browser over those relations — anything linked to a date appears on that day, and date frames draw as bars that span and wrap across weeks. Hover a day to highlight it, click it to see and attribute what's on it, or drag across days to make a frame. Global across folders, color-coded by kind (projects / playlists / todos), and rendered off the UI thread.
+- **Notes is now a notebook.** The single folder-wide scratchpad became a list of named notes — create, rename, search, reorder, delete — beside an editor with a title field. Your old scratchpad migrates into a first note automatically.
+- **Cursor-aware Markdown.** Every notes pane now hides the syntax markers (`#`, `**`, backticks, link brackets, `>`) on every line except the one the cursor is on, where they reappear so you can edit them — an in-place live preview. The document underneath stays plain, raw Markdown.
+- **Suspended and Failed project states.** Two toggles beside Done/Tested, each recoloring the project so on-hold and abandoned work reads at a glance.
+- **GitHub Sponsors.** An optional **Sponsor** link; Projectum stays free, with no servers, accounts, or telemetry.
+
+### Fixed
+
+- **Negative size for folders over 2 GB.** The size probe carried bytes through a 32-bit signal and wrapped large folders to a negative number; it's a 64-bit value now.
+
+### Removed
+
+- **The experimental Graph view.** The Calendar and the Links dialog cover the same ground more directly, so the separate radial graph was retired.
+
+[1.8.0]: https://github.com/wleeaf/projectum/releases/tag/v1.8.0
+
 ## [1.7.0] — 2026-06-02
 
 ### Added
