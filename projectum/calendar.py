@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-from .store import ProjectStore
+from .store import ProjectStore, _note_title_from_body
 
 # Week starts on Monday (ISO). date.weekday(): Monday == 0 … Sunday == 6.
 WEEK_START = 0
@@ -41,6 +41,7 @@ WEEK_START = 0
 KIND_PROJECT = "project"
 KIND_PLAYLIST = "playlist"
 KIND_TODO = "todo"
+KIND_NOTE = "note"
 
 
 def parse_date(text: str) -> date | None:
@@ -112,6 +113,11 @@ def items_from_store(store: ProjectStore) -> list[ScheduledItem]:
     for t in store.todos:
         items.append(ScheduledItem(home, KIND_TODO, t.id, t.text,
                                    t.start, t.end, t.done))
+    # Notes carry no schedule, but they're still linkable entities — emit them
+    # (start/end empty) so they resolve in the relation index and search.
+    for n in store.note_docs:
+        title = n.title.strip() or _note_title_from_body(n.body) or "(untitled note)"
+        items.append(ScheduledItem(home, KIND_NOTE, n.id, title, "", "", False))
     return items
 
 

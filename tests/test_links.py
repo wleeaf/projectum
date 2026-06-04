@@ -271,6 +271,28 @@ def test_relate_date_picker_creates_link(window, qapp, tmp_path):
     window._relate_date_picker.close()
 
 
+def test_notes_are_first_class_relatable(window, qapp, tmp_path):
+    fa = tmp_path / "work"; fa.mkdir(); (fa / "alpha").mkdir()
+    s = ProjectStore(fa); note = s.add_note("Design doc", "body"); s.save()
+    from projectum.app import load_state, save_state
+    st = load_state(); st["recent_folders"] = [str(fa)]; save_state(st)
+    window.load_folder(fa); qapp.processEvents()
+
+    # A note now resolves in the relation index (so it's searchable/relatable).
+    note_ref = make_ref("note", str(fa), note.id)
+    idx = window._build_entity_index()
+    assert note_ref in idx and idx[note_ref].title == "Design doc"
+
+    # Anything can relate to the note (everything-to-everything).
+    proj_ref = make_ref("project", str(fa), "alpha")
+    window._relate(proj_ref, note_ref)
+    assert window._link_store.has(proj_ref, note_ref)
+
+    # Deleting the note prunes its edges.
+    window._remove_note(note.id); qapp.processEvents()
+    assert window._link_store.degree(note_ref) == 0
+
+
 def test_prune_links_on_todo_delete(window, qapp, tmp_path):
     fa = tmp_path / "work"; fa.mkdir()
     s = ProjectStore(fa); todo = s.add_todo("doomed"); s.save()

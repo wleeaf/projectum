@@ -1119,6 +1119,7 @@ class MainWindow(QMainWindow):
             self._note_save_timer.stop()
             self.current_note = None
         self.store.remove_note(note_id)
+        self._prune_links_for("note", note_id)   # explicit deletion prunes edges
         item = self._note_items.pop(note_id, None)
         row_idx = self.notes_list_widget.row(item) if item is not None else -1
         if row_idx >= 0:
@@ -1143,10 +1144,18 @@ class MainWindow(QMainWindow):
 
     def _show_note_context_menu(self, pos) -> None:
         item = self.notes_list_widget.itemAt(pos)
-        if item is None:
+        if item is None or not self.store:
             return
         nid = item.data(Qt.ItemDataRole.UserRole)
+        note = self.store.get_note(nid)
+        title = note_display(note)[0] if note is not None else "Note"
+        subject = make_ref("note", str(self.store.root), nid)
         menu = QMenu(self)
+        self._add_relate_actions(menu, subject, title)
+        relate = QAction("Links…", menu)
+        relate.triggered.connect(partial(self._open_links_dialog, subject, title))
+        menu.addAction(relate)
+        menu.addSeparator()
         menu.addAction("Delete note", lambda: self._remove_note(nid))
         menu.exec(self.notes_list_widget.mapToGlobal(pos))
 
@@ -3425,7 +3434,7 @@ class MainWindow(QMainWindow):
         right-click menu. Each opens a themed, searchable panel — a scalable
         path that works for any subject (todo, project, calendar day/item)."""
         sub = menu.addMenu("Relate to")
-        for kind in ("project", "playlist", "todo"):
+        for kind in ("project", "playlist", "todo", "note"):
             act = sub.addAction(KIND_LABEL.get(kind, kind))
             act.triggered.connect(partial(
                 self._open_links_dialog, subject_ref, subject_title, kind_filter=kind))
@@ -3540,6 +3549,10 @@ class MainWindow(QMainWindow):
                 self.todo_list_widget.scrollToItem(item)
         elif ref.kind == "note":
             self._goto_tab("notes")
+            item = self._note_items.get(ref.key)
+            if item is not None:
+                self.notes_list_widget.setCurrentItem(item)
+                self.notes_list_widget.scrollToItem(item)
         else:
             self._goto_tab("projects")
 
