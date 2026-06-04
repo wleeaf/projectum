@@ -328,6 +328,24 @@ def test_monthgrid_hover_tracks_and_clears(qapp):
     g.deleteLater()
 
 
+def test_monthgrid_right_click_day_emits_day_context(qapp):
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from projectum.widgets import MonthGrid
+    g = MonthGrid(); g.resize(800, 600); g.set_month(2026, 6)
+    qapp.processEvents()
+    ox, oy, cw, ch = g._geom()
+    pos = QPointF(ox + cw / 2, oy + ch / 2)          # first day cell
+    got = []
+    g.day_context.connect(lambda d, _p: got.append(d))
+    g.mousePressEvent(QMouseEvent(
+        QEvent.Type.MouseButtonPress, pos, Qt.MouseButton.RightButton,
+        Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier))
+    assert got == [g._day_at(pos)] and g._day_at(pos) is not None
+    assert g._day_sel is None                        # right-click starts no selection
+    g.deleteLater()
+
+
 def test_calendar_unlink_date_from_day(window, qapp, tmp_path):
     fa = _folder(tmp_path, "work", ["alpha"])
     s = ProjectStore(fa); todo = s.add_todo("Task A"); s.save()

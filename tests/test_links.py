@@ -221,6 +221,47 @@ def test_navigate_to_cross_folder(window, qapp, tmp_path):
     assert window.current_tab == "projects"
 
 
+def test_quick_relate_logic(window, qapp, tmp_path):
+    fa = tmp_path / "work"; fa.mkdir()
+    (fa / "alpha").mkdir(); (fa / "beta").mkdir()
+    ProjectStore(fa).save()
+    from projectum.app import load_state, save_state
+    st = load_state(); st["recent_folders"] = [str(fa)]; save_state(st)
+    window.load_folder(fa); qapp.processEvents()
+
+    todo_ref = make_ref("todo", str(fa), "t1")
+    rows = window._relatable_projects(todo_ref)
+    assert {title for _r, title, _l in rows} == {"alpha", "beta"}
+    assert all(not linked for _r, _t, linked in rows)        # nothing related yet
+
+    # _relate creates the undirected link.
+    alpha_ref = make_ref("project", str(fa), "alpha")
+    window._relate(todo_ref, alpha_ref)
+    assert window._link_store.has(todo_ref, alpha_ref)
+    assert any(r == alpha_ref and linked
+               for r, _t, linked in window._relatable_projects(todo_ref))
+
+    # A project subject excludes itself from the list.
+    rows3 = window._relatable_projects(alpha_ref)
+    assert alpha_ref not in [r for r, _t, _l in rows3]
+    assert "beta" in {title for _r, title, _l in rows3}
+
+
+def test_quick_relate_date_action_only_for_non_dates(window, qapp, tmp_path):
+    from PySide6.QtWidgets import QMenu
+    fa = tmp_path / "work"; fa.mkdir(); (fa / "alpha").mkdir()
+    ProjectStore(fa).save()
+    window.load_folder(fa); qapp.processEvents()
+
+    def offers_date(subject_ref):
+        menu = QMenu(window)
+        window._add_relate_actions(menu, subject_ref)
+        return any(a.text() == "Relate to date…" for a in menu.actions())
+
+    assert offers_date(make_ref("todo", str(fa), "t1"))   # entity subject -> offered
+    assert not offers_date(date_ref("2026-06-10"))        # date subject -> omitted
+
+
 def test_prune_links_on_todo_delete(window, qapp, tmp_path):
     fa = tmp_path / "work"; fa.mkdir()
     s = ProjectStore(fa); todo = s.add_todo("doomed"); s.save()

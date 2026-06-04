@@ -2385,6 +2385,7 @@ class MonthGrid(QWidget):
     day_range_selected = Signal(object, object)  # (start_date, end_date) drag-select
     item_activated = Signal(object)    # a ScheduledItem
     item_context = Signal(object, QPoint)  # (ScheduledItem, global pos) on right-click
+    day_context = Signal(object, QPoint)   # (date, global pos) on right-click of a day
     item_rescheduled = Signal(object, str, str)  # (item, start_iso, end_iso) after drag
 
     PAD = 8
@@ -2715,6 +2716,11 @@ class MonthGrid(QWidget):
                                        event.globalPosition().toPoint())
                 event.accept()
                 return
+            day = self._day_at(pos)
+            if day is not None:
+                self.day_context.emit(day, event.globalPosition().toPoint())
+                event.accept()
+                return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -2835,6 +2841,7 @@ class CalendarView(QWidget):
     day_range_selected = Signal(object, object)
     item_activated = Signal(object)
     item_context = Signal(object, QPoint)
+    day_context = Signal(object, QPoint)
     item_rescheduled = Signal(object, str, str)  # (item, start_iso, end_iso)
 
     def __init__(self, parent: QWidget | None = None):
@@ -2883,6 +2890,7 @@ class CalendarView(QWidget):
         self.grid.day_range_selected.connect(self.day_range_selected.emit)
         self.grid.item_activated.connect(self.item_activated.emit)
         self.grid.item_context.connect(self.item_context.emit)
+        self.grid.day_context.connect(self.day_context.emit)
         root.addWidget(self.grid, 1)
 
         self._refresh_title()

@@ -431,6 +431,7 @@ class MainWindow(QMainWindow):
         view.day_range_selected.connect(self._on_calendar_frame_attribute)  # a frame
         view.item_activated.connect(self._on_calendar_item_open)     # open the entity
         view.item_context.connect(self._on_calendar_item_context)
+        view.day_context.connect(self._on_calendar_day_context)      # relate a date
         return view
 
     def _build_tab_bar(self) -> QWidget:
@@ -1769,11 +1770,10 @@ class MainWindow(QMainWindow):
         )
         menu.addAction(toggle)
         menu.addSeparator()
+        subject = make_ref("project", str(self.store.root), project.name)
+        self._add_relate_actions(menu, subject)
         relate = QAction("Links…", menu)
-        relate.triggered.connect(partial(
-            self._open_links_dialog,
-            make_ref("project", str(self.store.root), project.name), project.name,
-        ))
+        relate.triggered.connect(partial(self._open_links_dialog, subject, project.name))
         menu.addAction(relate)
         menu.addSeparator()
         # Bulletproof actions first.
@@ -3403,6 +3403,8 @@ class MainWindow(QMainWindow):
         op = QAction("Open", menu)
         op.triggered.connect(lambda: self._navigate_to(ref))
         menu.addAction(op)
+        menu.addSeparator()
+        self._add_relate_actions(menu, ref)
         lk = QAction("Links…", menu)
         lk.triggered.connect(lambda: self._open_links_dialog(ref, item.title or ref.key))
         menu.addAction(lk)
@@ -3415,6 +3417,87 @@ class MainWindow(QMainWindow):
     def _unlink_date(self, ref, iso: str) -> None:
         if self._link_store.remove(ref, links_mod.date_ref(iso)):
             self._refresh_calendar()
+
+    # ─── Quick relate (context-menu shortcuts) ───────────────────
+
+    def _relatable_projects(self, subject_ref) -> list:
+        """``(ref, title, already_linked)`` for every project the subject could
+        be related to — all projects across tracked folders except the subject
+        itself, sorted by title."""
+        index = self._build_entity_index()
+        rows = [
+            (ref, info.title, self._link_store.has(subject_ref, ref))
+            for ref, info in index.items()
+            if ref.kind == "project" and ref != subject_ref
+        ]
+        rows.sort(key=lambda r: r[1].casefold())
+        return rows
+
+    def _add_relate_actions(self, menu, subject_ref) -> None:
+        """Add quick 'Relate to project ▸' and 'Relate to date…' items to a
+        right-click menu — a faster path than the full Links dialog. Available
+        on todos, projects, and calendar days/items."""
+        proj_menu = menu.addMenu("Relate to project")
+        projects = self._relatable_projects(subject_ref)
+        if projects:
+            for ref, title, linked in projects:
+                act = proj_menu.addAction(f"{title}  ✓" if linked else title)
+                if linked:
+                    act.setEnabled(False)   # already related
+                else:
+                    act.triggered.connect(partial(self._relate, subject_ref, ref))
+        else:
+            proj_menu.addAction("No projects").setEnabled(False)
+        # Relating a date to a date is meaningless — only offer it otherwise.
+        if not subject_ref.is_calendar:
+            menu.addAction("Relate to date…").triggered.connect(
+                partial(self._relate_to_date, subject_ref)
+            )
+
+    def _relate(self, a, b) -> None:
+        if self._link_store.add(a, b):
+            self._on_links_changed()
+
+    def _relate_to_date(self, subject_ref) -> None:
+        iso = self._pick_date()
+        if iso:
+            self._relate(subject_ref, links_mod.date_ref(iso))
+
+    def _pick_date(self) -> str | None:
+        """A small modal to pick a date — uses QDateEdit (calendar popup) so the
+        control matches the Links dialog. Returns an ISO date or None."""
+        from PySide6.QtCore import QDate
+        from PySide6.QtWidgets import (
+            QDateEdit, QDialog, QDialogButtonBox, QLabel, QVBoxLayout,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Relate to date")
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel("Pick a date to relate to:"))
+        edit = QDateEdit(QDate.currentDate())
+        edit.setCalendarPopup(True)
+        edit.setDisplayFormat("ddd, MMM d yyyy")
+        lay.addWidget(edit)
+        bb = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            return edit.date().toString("yyyy-MM-dd")
+        return None
+
+    def _on_calendar_day_context(self, day, global_pos) -> None:
+        ref = links_mod.date_ref(day.isoformat())
+        menu = QMenu(self)
+        self._add_relate_actions(menu, ref)
+        menu.addSeparator()
+        attr = QAction("Attribute this day…", menu)
+        attr.triggered.connect(lambda: self._open_links_dialog(
+            ref, _format_date_iso(day.isoformat()), allow_range=True))
+        menu.addAction(attr)
+        menu.exec(global_pos)
 
     # ─── Relations (links) ───────────────────────────────────────
 
@@ -3507,12 +3590,12 @@ class MainWindow(QMainWindow):
         todo = self.store.get_todo(tid)
         if todo is None:
             return
+        subject = make_ref("todo", str(self.store.root), tid)
         menu = QMenu(self)
+        self._add_relate_actions(menu, subject)
+        menu.addSeparator()
         relate = QAction("Links…", menu)
-        relate.triggered.connect(partial(
-            self._open_links_dialog,
-            make_ref("todo", str(self.store.root), tid), todo.text,
-        ))
+        relate.triggered.connect(partial(self._open_links_dialog, subject, todo.text))
         menu.addAction(relate)
         menu.exec(self.todo_list_widget.viewport().mapToGlobal(pos))
 
