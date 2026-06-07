@@ -119,6 +119,34 @@ def test_todo_lifecycle_and_persistence(window, tmp_path, qapp):
         ("write tests", True), ("ship v1.3", False)]
 
 
+def test_project_expansion_shows_indented_nested_rows(window, tmp_path, qapp):
+    from PySide6.QtWidgets import QListWidget
+    from projectum.widgets import ProjectRow
+    ws = tmp_path / "ws2"; ws.mkdir()
+    (ws / "web-client").mkdir()
+    (ws / "freelance").mkdir()
+    (ws / "freelance" / "acme").mkdir()
+    (ws / "freelance" / "globex").mkdir()
+    window.load_folder(ws); qapp.processEvents()
+
+    # Flat to start: drag-reorder on, no nested rows.
+    assert window.list_widget.dragDropMode() == QListWidget.DragDropMode.InternalMove
+    assert "freelance/acme" not in window._row_items
+
+    window._set_project_expansion("freelance", 1); qapp.processEvents()
+    assert {"freelance/acme", "freelance/globex"} <= set(window._row_items)
+    # Drag-reorder is disabled while a folder is expanded.
+    assert window.list_widget.dragDropMode() == QListWidget.DragDropMode.NoDragDrop
+    # The nested row shows the leaf name and is indented.
+    row = window.list_widget.itemWidget(window._row_items["freelance/acme"])
+    assert isinstance(row, ProjectRow) and row.name_label.text() == "acme"
+    assert row.layout().contentsMargins().left() > 12
+
+    window._set_project_expansion("freelance", 0); qapp.processEvents()
+    assert "freelance/acme" not in window._row_items
+    assert window.list_widget.dragDropMode() == QListWidget.DragDropMode.InternalMove
+
+
 def test_notes_tab_create_select_persist(window, tmp_path, qapp):
     window.load_folder(make_folder(tmp_path, "p"))
     window._goto_tab("notes"); qapp.processEvents()

@@ -341,7 +341,8 @@ class ProjectRow(QWidget):
 
     def _build(self) -> None:
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
+        # Indent nested projects (surfaced by an expanded folder) by their depth.
+        layout.setContentsMargins(12 + self.project.depth * 16, 10, 12, 10)
         layout.setSpacing(12)
 
         self.toggle = CompletionToggle(self.project.completed)
@@ -358,7 +359,9 @@ class ProjectRow(QWidget):
         col.setSpacing(4)
         col.setContentsMargins(0, 0, 0, 0)
 
-        self.name_label = QLabel(self.project.name)
+        self.name_label = QLabel(self.project.leaf)
+        if self.project.depth:
+            self.name_label.setToolTip(self.project.name)   # full relative path
         nf = QFont()
         nf.setPointSize(11)
         nf.setWeight(QFont.Weight.Medium)

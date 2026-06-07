@@ -94,6 +94,7 @@ The Calendar is the home for the date side of all this. Hover a day and it light
 ## The rest of it
 
 - **Projects from the filesystem.** Each subfolder is a project. The detail panel shows its size, last-modified time, and current git branch + whether the tree is dirty (read off the UI thread, so it never blocks). Done and tested toggles, color tags with a sidebar filter, pin-to-top, drag to reorder.
+- **Expand a folder into nested projects.** When a folder is really a group of repos, right-click it → *Show subfolders as projects* and pick a depth (1–3 levels). Its subfolders show up indented underneath as projects too; the folder itself stays one. It's per-folder and opt-in — everything else stays flat.
 - **Playlists with per-video tracking.** *Refresh* pulls in new uploads without losing your watched/notes state; anything removed upstream is kept and flagged rather than silently dropped.
 - **Live Markdown** everywhere there's a notes pane. Headings, bold/italic, code, lists, quotes, and links render as you type. The syntax markers (`#`, `**`, backticks, link brackets) stay hidden until you move the cursor onto a line, then reappear so you can edit them — a live preview with no separate preview mode, and the document underneath is always plain Markdown.
 - **Quick actions** on a project: open the folder, copy its path, open a terminal there, or open it in your editor (VS Code / Cursor / Zed / Sublime, if one's on your `PATH`).

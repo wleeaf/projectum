@@ -45,6 +45,77 @@ def test_sorted_projects_pinned_first(tmp_path):
     assert s.sorted_projects()[0].name == "c"
 
 
+# ── folder expansion: nested subfolders as projects ──
+
+def _nested(tmp_path):
+    (tmp_path / "web-client").mkdir()
+    (tmp_path / "freelance").mkdir()
+    (tmp_path / "freelance" / "acme").mkdir()
+    (tmp_path / "freelance" / "acme" / "api").mkdir()
+    (tmp_path / "freelance" / "globex").mkdir()
+    return ProjectStore(tmp_path)
+
+
+def test_expansion_zero_is_classic_flat(tmp_path):
+    s = _nested(tmp_path)                       # no expansions
+    assert [p.name for p in s.sorted_projects()] == ["freelance", "web-client"]
+    assert all(p.depth == 0 for p in s.sorted_projects())
+
+
+def test_expansion_adds_nested_projects_by_depth(tmp_path):
+    s = _nested(tmp_path)
+    s.set_expansion("freelance", 1)            # immediate children only
+    assert [p.name for p in s.sorted_projects()] == [
+        "freelance", "freelance/acme", "freelance/globex", "web-client"]
+    assert s.projects["freelance/acme"].depth == 1
+    assert s.projects["freelance/acme"].leaf == "acme"
+
+    s.set_expansion("freelance", 2)            # one level deeper
+    assert "freelance/acme/api" in s.projects
+    assert s.projects["freelance/acme/api"].depth == 2
+
+
+def test_expansion_tree_order_keeps_subtree_with_parent(tmp_path):
+    s = _nested(tmp_path)
+    s.set_expansion("freelance", 2)
+    s.projects["freelance/globex"].pinned = True   # floats among its siblings
+    s.save(); s.load()
+    # globex floats above acme, but acme keeps its api child directly under it,
+    # and the whole freelance subtree stays grouped before web-client.
+    assert [p.name for p in s.sorted_projects()] == [
+        "freelance", "freelance/globex", "freelance/acme",
+        "freelance/acme/api", "web-client"]
+
+
+def test_expansion_skips_dotfolders(tmp_path):
+    s = _nested(tmp_path)
+    (tmp_path / "freelance" / ".git").mkdir()
+    s.set_expansion("freelance", 1)
+    assert "freelance/.git" not in s.projects
+
+
+def test_unexpand_preserves_metadata_via_orphans(tmp_path):
+    s = _nested(tmp_path)
+    s.set_expansion("freelance", 1)
+    s.projects["freelance/acme"].tags = ["important"]
+    s.projects["freelance/acme"].completed = True
+    s.save()
+    s.set_expansion("freelance", 0)            # stop expanding
+    assert "freelance/acme" not in s.projects
+    assert s.orphans["freelance/acme"]["tags"] == ["important"]
+    s.set_expansion("freelance", 1)            # re-expand -> restored
+    assert s.projects["freelance/acme"].tags == ["important"]
+    assert s.projects["freelance/acme"].completed is True
+
+
+def test_expansion_persists_round_trip(tmp_path):
+    s = _nested(tmp_path)
+    s.set_expansion("freelance", 2)
+    s2 = ProjectStore(tmp_path)                 # fresh load reads expansions
+    assert s2.expansions == {"freelance": 2}
+    assert "freelance/acme/api" in s2.projects
+
+
 # ── orphans: the 1.1.0 pin/position regression ──
 
 def test_orphan_preserves_pin_and_position(tmp_path):

@@ -65,6 +65,18 @@ class Project:
     def folder(self) -> Path:
         return Path(self.path)
 
+    @property
+    def depth(self) -> int:
+        """Nesting level below the root. 0 for a direct subfolder; 1+ for the
+        descendants surfaced by an expanded folder (``name`` is the POSIX path
+        relative to the root, so depth is its separator count)."""
+        return self.name.count("/")
+
+    @property
+    def leaf(self) -> str:
+        """The folder's own name (last path segment) for display."""
+        return self.name.rsplit("/", 1)[-1]
+
     def last_modified(self) -> datetime | None:
         try:
             return datetime.fromtimestamp(self.folder.stat().st_mtime)
@@ -211,6 +223,9 @@ class ProjectStore:
         self.projects: dict[str, Project] = {}
         self.orphans: dict[str, dict] = {}
         self.tag_colors: dict[str, str] = {}
+        # Folders the user chose to expand: POSIX relpath -> how many levels of
+        # subfolders below it also become projects. Empty == classic flat scan.
+        self.expansions: dict[str, int] = {}
         self.playlists: list[Playlist] = []
         self.todos: list[Todo] = []  # folder-level to-do list (Todo tab)
         self.notes: str = ""  # legacy single scratchpad; migrated into note_docs
@@ -220,6 +235,57 @@ class ProjectStore:
     @property
     def store_path(self) -> Path:
         return self.root / self.STORE_FILENAME
+
+    SCAN_BUDGET = 2000  # cap on dirs surfaced by expansions (keep the scan cheap)
+
+    def _scan_project_dirs(self) -> dict[str, Path]:
+        """Map POSIX relpath -> absolute Path for every project folder: the
+        root's direct subfolders, plus the depth-bounded subtrees of any
+        expanded folders. Skips dotfiles and symlinked dirs (loop-safe) and is
+        capped at ``SCAN_BUDGET`` so one huge expansion can't stall the scan."""
+        results: dict[str, Path] = {}
+        try:
+            for entry in self.root.iterdir():
+                if entry.is_dir() and not entry.name.startswith("."):
+                    results[entry.name] = entry
+        except OSError:
+            pass
+        budget = self.SCAN_BUDGET
+        for relpath, depth in self.expansions.items():
+            base = self.root / relpath
+            if depth <= 0 or not base.is_dir():
+                continue
+            stack = [(base, relpath, 0)]
+            while stack and budget > 0:
+                cur, cur_rel, lvl = stack.pop()
+                if lvl >= depth:
+                    continue
+                try:
+                    children = list(cur.iterdir())
+                except OSError:
+                    continue
+                for child in children:
+                    if budget <= 0:
+                        break
+                    if (child.name.startswith(".") or child.is_symlink()
+                            or not child.is_dir()):
+                        continue
+                    rel = f"{cur_rel}/{child.name}"
+                    if rel not in results:
+                        results[rel] = child
+                        budget -= 1
+                    stack.append((child, rel, lvl + 1))
+        return results
+
+    def set_expansion(self, relpath: str, depth: int) -> None:
+        """Show ``depth`` levels of ``relpath``'s subfolders as projects too
+        (``depth`` <= 0 stops expanding it). Rescans so it takes effect."""
+        if depth and depth > 0:
+            self.expansions[relpath] = int(depth)
+        else:
+            self.expansions.pop(relpath, None)
+        self.save()
+        self.load()
 
     def load(self) -> None:
         data: dict = {}
@@ -244,14 +310,15 @@ class ProjectStore:
         self.tag_colors = dict(tag_colors) if isinstance(tag_colors, dict) else {}
         self.notes = str(data.get("notes", ""))
 
-        try:
-            entries = sorted(
-                (p for p in self.root.iterdir()
-                 if p.is_dir() and not p.name.startswith(".")),
-                key=lambda p: p.name.lower(),
-            )
-        except OSError:
-            entries = []
+        raw_exp = data.get("expansions")
+        self.expansions = {}
+        if isinstance(raw_exp, dict):
+            for k, v in raw_exp.items():
+                depth = _as_int(v)
+                if isinstance(k, str) and depth > 0:
+                    self.expansions[k] = depth
+
+        scanned = self._scan_project_dirs()   # {posix relpath: absolute Path}
 
         # Preserve existing Project instances by name when reloading. The
         # alternative — recreating instances every load — leaves callers
@@ -262,8 +329,8 @@ class ProjectStore:
         existing_projects = self.projects
         new_projects: dict[str, Project] = {}
         seen: set[str] = set()
-        for entry in entries:
-            name = entry.name
+        for name in sorted(scanned, key=str.lower):
+            entry = scanned[name]      # name is the POSIX relpath; entry the abspath
             seen.add(name)
             d = all_persisted.get(name, {})
             if not isinstance(d, dict):
@@ -468,6 +535,7 @@ class ProjectStore:
             },
             "_orphans": self.orphans,
             "tag_colors": self.tag_colors,
+            "expansions": self.expansions,
             "playlists": [
                 {
                     "id": pl.id,
@@ -516,11 +584,23 @@ class ProjectStore:
         os.replace(tmp, self.store_path)
 
     def sorted_projects(self) -> list[Project]:
-        """Pinned first (by position, then name), then unpinned (same)."""
-        return sorted(
-            self.projects.values(),
-            key=lambda p: (not p.pinned, p.position, p.name.casefold()),
-        )
+        """Tree order: each folder immediately precedes its expanded subtree,
+        with siblings at every level ordered pinned-first, then by position, then
+        name. With no expansions this collapses to the classic flat ordering."""
+        by_name = self.projects
+
+        def key(p: Project):
+            parts = p.name.split("/")
+            out = []
+            for i in range(len(parts)):
+                anc = by_name.get("/".join(parts[:i + 1]))
+                if anc is not None:
+                    out.append((not anc.pinned, anc.position, parts[i].casefold()))
+                else:
+                    out.append((True, 0, parts[i].casefold()))
+            return out
+
+        return sorted(by_name.values(), key=key)
 
     def sorted_playlists(self) -> list[Playlist]:
         return sorted(

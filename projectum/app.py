@@ -1647,7 +1647,28 @@ class MainWindow(QMainWindow):
         for project in self.store.sorted_projects():
             self._append_row(project)
         self.list_widget.blockSignals(False)
+        self._sync_list_dragdrop()
         self._apply_filter(preserve_name=preserve_name)
+
+    def _sync_list_dragdrop(self) -> None:
+        """Free drag-reorder only makes sense in the flat (no-expansion) layout —
+        a nested project can't be dragged out of the folder it lives in. Disable
+        it while any folder is expanded; pin-to-top still reorders within a level."""
+        expanded = bool(self.store and self.store.expansions)
+        self.list_widget.setDragDropMode(
+            QListWidget.DragDropMode.NoDragDrop if expanded
+            else QListWidget.DragDropMode.InternalMove)
+
+    def _set_project_expansion(self, relpath: str, depth: int) -> None:
+        """Expand/un-expand a folder into nested projects, then rescan + rebuild.
+        The marked folder stays a project, so reselect it afterward."""
+        if not self.store:
+            return
+        self.store.set_expansion(relpath, depth)        # save + rescan from disk
+        self.current_project = self.store.projects.get(relpath)
+        self._full_rebuild_list(preserve_name=relpath)
+        self._update_stats()
+        self._rebuild_index_async()                     # nested projects -> index
 
     def _make_project_row(self, project: Project) -> ProjectRow:
         row = ProjectRow(project, self.store)
@@ -1789,6 +1810,19 @@ class MainWindow(QMainWindow):
             partial(self._toggle_project_pin, project.name)
         )
         menu.addAction(toggle)
+        cur_depth = self.store.expansions.get(project.name, 0)
+        exp_menu = menu.addMenu("Show subfolders as projects")
+        for depth in (1, 2, 3):
+            act = exp_menu.addAction(f"{depth} level{'s' if depth > 1 else ''} deep")
+            act.setCheckable(True)
+            act.setChecked(cur_depth == depth)
+            act.triggered.connect(
+                partial(self._set_project_expansion, project.name, depth))
+        exp_menu.addSeparator()
+        off = exp_menu.addAction("Off")
+        off.setCheckable(True)
+        off.setChecked(cur_depth == 0)
+        off.triggered.connect(partial(self._set_project_expansion, project.name, 0))
         menu.addSeparator()
         subject = make_ref("project", str(self.store.root), project.name)
         self._add_relate_actions(menu, subject, project.name)
