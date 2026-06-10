@@ -3,6 +3,18 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-06-10
+
+### Added
+
+- **Projectum keeps itself up to date.** When a newer release is found at launch, the app now installs it automatically — replacing the AppImage in place, fast-forwarding a git checkout (only when clean and on `main`), or upgrading the pip package — then offers a one-click **Restart** to apply. Frozen Windows/macOS builds keep the manual Download banner, since a running binary can't safely replace itself. The settings toggle ("Keep Projectum up to date automatically") still opts the whole thing out, and a failed install falls back to the old Download banner.
+
+### Fixed
+
+- **Checkboxes are now visible in light themes.** The check indicator was unstyled native Qt, which rendered dark with an unseeable tick on light palettes. It's now themed: a surface-colored box with a border, and an accent fill with a contrast-guaranteed checkmark when ticked.
+
+[2.1.0]: https://github.com/wleeaf/projectum/releases/tag/v2.1.0
+
 ## [2.0.0] — 2026-06-10
 
 ### Changed
