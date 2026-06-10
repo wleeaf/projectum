@@ -26,7 +26,7 @@ DARK_THEME = {
     "BORDER": "#252741",
     "TEXT": "#dce0f0",
     "TEXT_DIM": "#9aa0c3",
-    "TEXT_MUTED": "#5d6584",
+    "TEXT_MUTED": "#7a819d",
     "ACCENT": "#c4a7ff",
     "ACCENT_HOVER": "#d4bdff",
     "ACCENT_2": "#f5b8e2",
@@ -45,8 +45,8 @@ LIGHT_THEME = {
     "SURFACE_3": "#ccd0da",
     "BORDER": "#bcc0cc",
     "TEXT": "#4c4f69",
-    "TEXT_DIM": "#6c6f85",
-    "TEXT_MUTED": "#797c88",
+    "TEXT_DIM": "#5b5e76",
+    "TEXT_MUTED": "#65687a",
     "ACCENT": "#8839ef",
     "ACCENT_HOVER": "#7d34d9",
     "ACCENT_2": "#ea76cb",
@@ -66,7 +66,7 @@ NORD_THEME = {
     "BORDER": "#4c566a",
     "TEXT": "#eceff4",
     "TEXT_DIM": "#d8dee9",
-    "TEXT_MUTED": "#8b95a1",
+    "TEXT_MUTED": "#a7afb9",
     "ACCENT": "#88c0d0",
     "ACCENT_HOVER": "#9bcfdc",
     "ACCENT_2": "#b48ead",
@@ -86,7 +86,7 @@ DRACULA_THEME = {
     "BORDER": "#44475a",
     "TEXT": "#f8f8f2",
     "TEXT_DIM": "#bfbfbf",
-    "TEXT_MUTED": "#8592b9",
+    "TEXT_MUTED": "#95a0c1",
     "ACCENT": "#bd93f9",
     "ACCENT_HOVER": "#c9a3fc",
     "ACCENT_2": "#ff79c6",
@@ -106,7 +106,7 @@ SOLARIZED_DARK_THEME = {
     "BORDER": "#0e4452",
     "TEXT": "#fdf6e3",
     "TEXT_DIM": "#eee8d5",
-    "TEXT_MUTED": "#7e8f94",
+    "TEXT_MUTED": "#8d9b9d",
     "ACCENT": "#268bd2",
     "ACCENT_HOVER": "#3a9be0",
     "ACCENT_2": "#d33682",
@@ -125,8 +125,8 @@ SOLARIZED_LIGHT_THEME = {
     "SURFACE_3": "#dad4c4",
     "BORDER": "#dad4c4",
     "TEXT": "#073642",
-    "TEXT_DIM": "#586e75",
-    "TEXT_MUTED": "#727d7d",
+    "TEXT_DIM": "#49636b",
+    "TEXT_MUTED": "#586c6f",
     "ACCENT": "#268bd2",
     "ACCENT_HOVER": "#1e7bbf",
     "ACCENT_2": "#d33682",
@@ -146,7 +146,7 @@ GRUVBOX_DARK_THEME = {
     "BORDER": "#504945",
     "TEXT": "#ebdbb2",
     "TEXT_DIM": "#bdae93",
-    "TEXT_MUTED": "#8c8077",
+    "TEXT_MUTED": "#a39685",
     "ACCENT": "#fabd2f",
     "ACCENT_HOVER": "#fbc658",
     "ACCENT_2": "#d3869b",
@@ -166,7 +166,7 @@ TOKYO_NIGHT_THEME = {
     "BORDER": "#2f3549",
     "TEXT": "#c0caf5",
     "TEXT_DIM": "#a9b1d6",
-    "TEXT_MUTED": "#6a7297",
+    "TEXT_MUTED": "#8089af",
     "ACCENT": "#7aa2f7",
     "ACCENT_HOVER": "#8db4f8",
     "ACCENT_2": "#bb9af7",
@@ -186,7 +186,7 @@ ROSE_PINE_THEME = {
     "BORDER": "#26233a",
     "TEXT": "#e0def4",
     "TEXT_DIM": "#908caa",
-    "TEXT_MUTED": "#6e6a86",
+    "TEXT_MUTED": "#87849e",
     "ACCENT": "#c4a7e7",
     "ACCENT_HOVER": "#d4b9ec",
     "ACCENT_2": "#eb6f92",
@@ -206,7 +206,7 @@ ONE_DARK_THEME = {
     "BORDER": "#3a3f4b",
     "TEXT": "#abb2bf",
     "TEXT_DIM": "#9da5b4",
-    "TEXT_MUTED": "#7d8494",
+    "TEXT_MUTED": "#8c93a2",
     "ACCENT": "#61afef",
     "ACCENT_HOVER": "#74bbf3",
     "ACCENT_2": "#c678dd",
@@ -246,7 +246,7 @@ CATPPUCCIN_MACCHIATO_THEME = {
     "BORDER": "#363a4f",
     "TEXT": "#cad3f5",
     "TEXT_DIM": "#b8c0e0",
-    "TEXT_MUTED": "#8087a2",
+    "TEXT_MUTED": "#878ea9",
     "ACCENT": "#c6a0f6",
     "ACCENT_HOVER": "#d2b3f8",
     "ACCENT_2": "#f5bde6",
@@ -266,7 +266,7 @@ EVERFOREST_DARK_THEME = {
     "BORDER": "#475258",
     "TEXT": "#d3c6aa",
     "TEXT_DIM": "#bdc3af",
-    "TEXT_MUTED": "#859289",
+    "TEXT_MUTED": "#a7a998",
     "ACCENT": "#a7c080",
     "ACCENT_HOVER": "#b9cf9a",
     "ACCENT_2": "#d699b6",
@@ -286,7 +286,7 @@ GRUVBOX_LIGHT_THEME = {
     "BORDER": "#d5c4a1",
     "TEXT": "#3c3836",
     "TEXT_DIM": "#504945",
-    "TEXT_MUTED": "#7c6f64",
+    "TEXT_MUTED": "#70655c",
     "ACCENT": "#b57614",
     "ACCENT_HOVER": "#a06912",
     "ACCENT_2": "#b16286",
@@ -308,7 +308,7 @@ MIDNIGHT_THEME = {  # true-black OLED, electric teal
     "BORDER": "#2b2f36",
     "TEXT": "#eceef1",
     "TEXT_DIM": "#abb1bb",
-    "TEXT_MUTED": "#717986",
+    "TEXT_MUTED": "#737b88",
     "ACCENT": "#2dd4bf",
     "ACCENT_HOVER": "#4ee0ce",
     "ACCENT_2": "#f472b6",
@@ -328,7 +328,7 @@ SYNTHWAVE_THEME = {  # deep indigo-black, neon magenta + cyan
     "BORDER": "#3a2568",
     "TEXT": "#f6e9ff",
     "TEXT_DIM": "#c9b6e8",
-    "TEXT_MUTED": "#8d79b3",
+    "TEXT_MUTED": "#907cb5",
     "ACCENT": "#ff3d9a",
     "ACCENT_HOVER": "#ff63b1",
     "ACCENT_2": "#2bf4f0",
@@ -368,7 +368,7 @@ GRAPHITE_THEME = {  # colorless charcoal + silver (no hue in the chrome)
     "BORDER": "#333333",
     "TEXT": "#ededed",
     "TEXT_DIM": "#b4b4b4",
-    "TEXT_MUTED": "#7c7c7c",
+    "TEXT_MUTED": "#858585",
     "ACCENT": "#c9c9c9",
     "ACCENT_HOVER": "#dedede",
     "ACCENT_2": "#9a9a9a",
@@ -388,7 +388,7 @@ PAPER_THEME = {  # crisp white, emerald accent
     "BORDER": "#d0d2d5",
     "TEXT": "#1c1d1f",
     "TEXT_DIM": "#4a4d52",
-    "TEXT_MUTED": "#797c80",
+    "TEXT_MUTED": "#6c6f72",
     "ACCENT": "#0d9488",
     "ACCENT_HOVER": "#0b8076",
     "ACCENT_2": "#db2777",
@@ -1202,7 +1202,7 @@ QPushButton#updateBannerButton {{
     background-color: {ACCENT};
     color: {BG};
     border: 1px solid {ACCENT};
-    border-radius: 7px;
+    border-radius: 8px;
     padding: 5px 14px;
     font-size: {max(size - 1, 11)}px;
     font-weight: 600;
@@ -1450,7 +1450,7 @@ QListWidget#linksResults {{
 
 QListWidget#linksResults::item {{
     padding: 5px 8px;
-    border-radius: 5px;
+    border-radius: 6px;
 }}
 
 QListWidget#linksResults::item:hover {{

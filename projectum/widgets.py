@@ -1568,10 +1568,13 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         super().__init__(document)
         self._cached_theme = None
         self._cached_size = None
-        # The block (line) the cursor sits on. Its markers stay dimmed-but-
-        # visible for editing; on every other line the markers are concealed
-        # so the text reads as rendered Markdown. Updated via set_active_block.
+        # Where the cursor sits (block + column within it). Line-level markers
+        # (heading #s, quote >) reveal dimmed on the cursor's line; inline-span
+        # markers (**, `, ~~, []()) reveal only while the cursor is inside that
+        # phrase. Everywhere else markers are concealed so the text reads as
+        # rendered Markdown. Updated via set_active_position.
         self._active_block = 0
+        self._active_col = 0
         self._reveal = True
         self._build_formats()
 
@@ -1579,7 +1582,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         # Imported lazily so this module stays import-safe at startup.
         from .theme import (
             ACCENT, ACCENT_2, SURFACE_2, TEXT, TEXT_DIM, TEXT_MUTED,
-            current_font_size, current_theme_name,
+            current_font_size, current_theme_name, legible_ink,
         )
         self._cached_theme = current_theme_name()
         self._cached_size = current_font_size()
@@ -1614,7 +1617,11 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             ["JetBrains Mono", "Fira Code", "DejaVu Sans Mono", "monospace"]
         )
         self._inline_code.setBackground(QColor(SURFACE_2))
-        self._inline_code.setForeground(QColor(ACCENT_2))
+        # ACCENT_2 is a pastel in several palettes — washed out on light
+        # SURFACE_2 backgrounds, so push it toward legibility per theme.
+        self._inline_code.setForeground(
+            QColor(legible_ink(ACCENT_2, SURFACE_2, target=4.5))
+        )
 
         self._code_block = fmt()
         self._code_block.setFontFamilies(
@@ -1665,30 +1672,39 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         self._build_formats()
         self.rehighlight()
 
-    def set_active_block(self, block_number: int) -> None:
-        """Reveal markers on ``block_number`` and conceal them everywhere else.
+    def set_active_position(self, block_number: int, col: int) -> None:
+        """Reveal markers around the cursor at (``block_number``, ``col``) and
+        conceal them everywhere else.
 
         Only the previously- and newly-active blocks are re-highlighted, so a
         cursor move is O(1). Reveal is a pure per-block formatting decision — it
         never touches ``currentBlockState`` (which stays content-only, tracking
         fenced code), so re-highlighting one line can't cascade to the rest.
         """
-        if block_number == self._active_block:
+        if block_number == self._active_block and col == self._active_col:
             return
         old, self._active_block = self._active_block, block_number
+        self._active_col = col
         doc = self.document()
         if doc is None:
             return
-        for n in (old, block_number):
+        for n in {old, block_number}:
             blk = doc.findBlockByNumber(n)
             if blk.isValid():
                 self.rehighlightBlock(blk)
 
     @property
     def _mk(self) -> QTextCharFormat:
-        """The marker format for the current block: dimmed on the cursor's
-        line, concealed elsewhere."""
+        """The marker format for line-level markers (heading #s, quote >):
+        dimmed on the cursor's line, concealed elsewhere."""
         return self._marker if self._reveal else self._marker_hidden
+
+    def _span_mk(self, start: int, end: int) -> QTextCharFormat:
+        """The marker format for an inline span: dimmed only while the cursor
+        sits inside that phrase, concealed otherwise — even on the same line."""
+        if self._reveal and start <= self._active_col <= end:
+            return self._marker
+        return self._marker_hidden
 
     def highlightBlock(self, text: str) -> None:
         self._maybe_rebuild()
@@ -1772,7 +1788,8 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         for m in self.INLINE_CODE_RE.finditer(text):
             self.setFormat(m.start(), m.end() - m.start(), sized(self._inline_code))
             code_spans.append((m.start(), m.end()))
-            if not skip_marker_dimming and not self._reveal:
+            if (not skip_marker_dimming
+                    and self._span_mk(m.start(), m.end()) is self._marker_hidden):
                 self.setFormat(m.start(), 1, self._marker_hidden)        # `
                 self.setFormat(m.end() - 1, 1, self._marker_hidden)      # `
 
@@ -1785,8 +1802,9 @@ class MarkdownHighlighter(QSyntaxHighlighter):
                     continue
                 self.setFormat(m.start(), m.end() - m.start(), sized(fmt))
                 if not skip_marker_dimming:
-                    self.setFormat(m.start(), marker_len, self._mk)
-                    self.setFormat(m.end() - marker_len, marker_len, self._mk)
+                    mk = self._span_mk(m.start(), m.end())
+                    self.setFormat(m.start(), marker_len, mk)
+                    self.setFormat(m.end() - marker_len, marker_len, mk)
 
         apply(self.BOLD_RE, self._bold, 2)
         apply(self.UNDERSCORE_BOLD_RE, self._bold, 2)
@@ -1802,17 +1820,20 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             self.setFormat(m.start() + 1, len(m.group(1)), sized(self._link))
             if not skip_marker_dimming:
                 # Conceal everything except the visible label text.
-                self.setFormat(m.start(), 1, self._mk)            # [
-                self.setFormat(label_end, m.end() - label_end, self._mk)  # ](url)
+                mk = self._span_mk(m.start(), m.end())
+                self.setFormat(m.start(), 1, mk)                  # [
+                self.setFormat(label_end, m.end() - label_end, mk)  # ](url)
 
 
 class MarkdownEditor(QTextEdit):
     """A notes editor with live, cursor-aware Markdown rendering.
 
-    Wraps a :class:`MarkdownHighlighter` and feeds it the cursor's line so the
-    syntax markers (``#``, ``**``, backticks, link brackets…) are concealed on
-    every line except the one being edited, where they reappear dimmed. The
-    document itself stays plain, raw Markdown — nothing is rewritten.
+    Wraps a :class:`MarkdownHighlighter` and feeds it the cursor position so
+    syntax markers stay concealed until the cursor enters them: line-level
+    markers (``#``, ``>``) reappear dimmed on the line being edited, inline
+    markers (``**``, backticks, link brackets…) only while the cursor is
+    inside that phrase. The document itself stays plain, raw Markdown —
+    nothing is rewritten.
     """
 
     def __init__(self, parent=None):
@@ -1823,7 +1844,8 @@ class MarkdownEditor(QTextEdit):
         self.cursorPositionChanged.connect(self._sync_active_line)
 
     def _sync_active_line(self) -> None:
-        self.highlighter.set_active_block(self.textCursor().blockNumber())
+        c = self.textCursor()
+        self.highlighter.set_active_position(c.blockNumber(), c.positionInBlock())
 
     def refresh_highlight(self) -> None:
         """Rebuild highlighter formats after a theme or font-size change."""

@@ -1940,9 +1940,9 @@ class MainWindow(QMainWindow):
             if self.list_widget.itemWidget(it) is None:
                 project = self.store.projects.get(name)
                 if project is not None:
-                    row = self._make_project_row(project)
-                    it.setSizeHint(QSize(0, row.sizeHint().height()))
-                    self.list_widget.setItemWidget(it, row)
+                    widget = self._make_project_row(project)
+                    it.setSizeHint(QSize(0, widget.sizeHint().height()))
+                    self.list_widget.setItemWidget(it, widget)
         self.store.reorder_projects(names)
         self.store.save()
 

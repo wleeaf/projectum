@@ -27,12 +27,26 @@ def test_body_text_readable(key):
 
 @pytest.mark.parametrize("key", ALL_THEMES)
 def test_deemphasized_and_semantic_text_readable(key):
-    # Muted labels, dim subtitles, and the bold semantic text (status / git /
-    # error / tested) all sit on SURFACE.
+    # Bold semantic text (status / git / error / tested) sits on SURFACE.
     t = T.THEMES[key]
-    for role in ("TEXT_DIM", "TEXT_MUTED", "SUCCESS", "WARNING", "DANGER", "INFO"):
+    for role in ("SUCCESS", "WARNING", "DANGER", "INFO"):
         c = T.contrast_ratio(t[role], t["SURFACE"])
         assert c >= DEEMPH, f"{key}: {role} on SURFACE = {c:.2f} (< {DEEMPH})"
+
+
+@pytest.mark.parametrize("key", ALL_THEMES)
+def test_muted_text_readable_and_ordered(key):
+    # Muted/dim text is normal-size body copy (hints, metadata, subtitles),
+    # so it gets the full BODY floor, on both backgrounds it appears over.
+    t = T.THEMES[key]
+    for role in ("TEXT_DIM", "TEXT_MUTED"):
+        for bg in ("BG", "SURFACE"):
+            c = T.contrast_ratio(t[role], t[bg])
+            assert c >= BODY, f"{key}: {role} on {bg} = {c:.2f} (< {BODY})"
+    # The de-emphasis hierarchy must hold: DIM reads stronger than MUTED.
+    dim = min(T.contrast_ratio(t["TEXT_DIM"], t[bg]) for bg in ("BG", "SURFACE"))
+    muted = min(T.contrast_ratio(t["TEXT_MUTED"], t[bg]) for bg in ("BG", "SURFACE"))
+    assert dim > muted, f"{key}: TEXT_DIM ({dim:.2f}) not above TEXT_MUTED ({muted:.2f})"
 
 
 @pytest.mark.parametrize("key", ALL_THEMES)

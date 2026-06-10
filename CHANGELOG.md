@@ -3,6 +3,20 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] — 2026-06-10
+
+### Changed
+
+- **Markdown markers now reveal per-phrase, not per-line.** Inline syntax (`**bold**`, `*italic*`, `` `code` ``, `~~strike~~`, `[label](url)`) stays concealed even on the line you're editing — the markers only reappear while the cursor is inside that phrase. Line-level markers (heading `#`s, blockquote `>`) still reveal for the whole line. The result reads much closer to a live preview while you type.
+- **Every theme's muted text is readable now.** `TEXT_MUTED` (hints, metadata, helper text) was below the WCAG AA 4.5:1 contrast floor in all 19 themes — as low as 3.0:1 in `dark`. Each palette's muted color was blended minimally toward its text color to clear 4.5:1 while keeping the theme's hue character; `light` and `solarized_light` also got a slightly darker `TEXT_DIM` so the de-emphasis hierarchy stays ordered. The theme test suite now enforces these floors so future palettes can't regress.
+- **Inline Markdown code is legible in every theme.** The accent-pink code color washed out against its background in 10 themes (down to 2.0:1 in `light`); it's now contrast-corrected per theme, hue preserved.
+
+### Fixed
+
+- Two stray border radii (update-banner button, link-search results) now match their families, and a confusing variable shadow in the project-list reconciler was cleaned up.
+
+[2.0.0]: https://github.com/wleeaf/projectum/releases/tag/v2.0.0
+
 ## [1.9.0] — 2026-06-04
 
 ### Added

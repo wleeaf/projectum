@@ -193,13 +193,17 @@ def test_clickable_label_emits_clicked_within_bounds(qapp):
     lbl.deleteLater()
 
 
-def test_markdown_editor_conceals_markers_off_cursor_line(qapp):
+def test_markdown_editor_conceals_markers_outside_cursor_phrase(qapp):
     from projectum.widgets import MarkdownEditor
     ed = MarkdownEditor()
     ed.setPlainText("# Heading\nbody **bold** text")
-    ed.highlighter.set_active_block(1)        # cursor on the body line
+    # Cursor on the body line but before the bold phrase (col 2, in "body").
+    ed.highlighter.set_active_position(1, 2)
     assert _marker_alpha(ed, 0, 0) == 0       # heading '#' concealed (transparent)
-    assert _marker_alpha(ed, 1, 5) == 255     # the bold '*' on the cursor line shows
-    ed.highlighter.set_active_block(0)        # cursor moves up to the heading
-    assert _marker_alpha(ed, 0, 0) == 255     # heading '#' now revealed
+    assert _marker_alpha(ed, 1, 5) == 0       # bold '*' concealed: cursor not in phrase
+    # Cursor moves inside the bold phrase (col 8, between the asterisks).
+    ed.highlighter.set_active_position(1, 8)
+    assert _marker_alpha(ed, 1, 5) == 255     # bold '*' now revealed
+    ed.highlighter.set_active_position(0, 0)  # cursor moves up to the heading
+    assert _marker_alpha(ed, 0, 0) == 255     # heading '#' revealed line-wide
     ed.deleteLater()
