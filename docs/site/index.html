@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projectum — every project in one window</title>
+<meta name="description" content="A free, open-source desktop tracker for the things that pile up around a folder of work: projects, playlists, todos, notes — connected. No servers, no account, no telemetry.">
+<meta property="og:title" content="Projectum">
+<meta property="og:description" content="Every project in one window. No servers, no account, no telemetry.">
+<meta property="og:image" content="https://projectum.wleeaf.dev/shots/01-projects-dark.png">
+<meta property="og:url" content="https://projectum.wleeaf.dev">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text x='4' y='25' font-family='Georgia' font-size='26' font-style='italic' font-weight='bold' fill='%23c4a7ff'>P</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#11121b; --surface:#181927; --surface2:#1f2033; --border:#252741;
+  --text:#dce0f0; --dim:#9aa0c3; --muted:#7a819d;
+  --accent:#c4a7ff; --accent2:#f5b8e2; --green:#a6e3a1; --info:#89dceb;
+  --display:"Fraunces",Georgia,serif;
+  --body:"IBM Plex Sans",sans-serif;
+  --mono:"JetBrains Mono",monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg); color:var(--text); font-family:var(--body);
+  font-size:17px; line-height:1.65; overflow-x:hidden;
+}
+body::before{ /* grain */
+  content:""; position:fixed; inset:0; z-index:9; pointer-events:none; opacity:.35;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+a{color:var(--accent); text-decoration:none}
+a:hover{text-decoration:underline; text-underline-offset:3px}
+.wrap{max-width:1080px; margin:0 auto; padding:0 28px}
+.label{
+  font-family:var(--mono); font-size:12px; letter-spacing:.22em;
+  text-transform:uppercase; color:var(--accent2);
+}
+
+/* ───── hero ───── */
+.hero{position:relative; padding:108px 0 40px; }
+.hero-glow{
+  position:absolute; inset:-30% -10% auto; height:90%; z-index:-1; pointer-events:none;
+  background:
+    radial-gradient(42% 55% at 22% 18%, rgba(196,167,255,.16), transparent 70%),
+    radial-gradient(38% 50% at 80% 8%,  rgba(245,184,226,.10), transparent 70%),
+    radial-gradient(30% 45% at 60% 50%, rgba(137,220,235,.06), transparent 70%);
+}
+.brand{display:flex; align-items:baseline; gap:14px; margin-bottom:64px;
+  animation:rise .7s cubic-bezier(.2,.7,.2,1) both}
+.brand b{font-family:var(--display); font-style:italic; font-weight:600; font-size:24px}
+.brand span{font-family:var(--mono); font-size:13px; color:var(--muted)}
+.brand .gh{margin-left:auto; font-family:var(--mono); font-size:13.5px; color:var(--dim)}
+h1{
+  font-family:var(--display); font-weight:430; font-size:clamp(44px,7.2vw,84px);
+  line-height:1.04; letter-spacing:-.015em; max-width:13ch;
+  animation:rise .7s .08s cubic-bezier(.2,.7,.2,1) both;
+}
+h1 em{font-style:italic; color:var(--accent)}
+.sub{
+  margin:30px 0 0; max-width:54ch; font-size:19px; color:var(--dim);
+  animation:rise .7s .16s cubic-bezier(.2,.7,.2,1) both;
+}
+.sub code{font-family:var(--mono); font-size:.85em; color:var(--accent2);
+  background:var(--surface2); padding:2px 7px; border-radius:6px}
+.ctas{display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin-top:42px;
+  animation:rise .7s .24s cubic-bezier(.2,.7,.2,1) both}
+.pipbox{
+  display:flex; align-items:center; gap:14px; font-family:var(--mono); font-size:15px;
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  padding:13px 18px; cursor:pointer; transition:border-color .2s, transform .2s;
+}
+.pipbox:hover{border-color:var(--accent); transform:translateY(-1px)}
+.pipbox .dollar{color:var(--accent2); user-select:none}
+.pipbox .copy{color:var(--muted); font-size:12px; letter-spacing:.08em; user-select:none}
+.btn{
+  display:inline-block; font-weight:600; font-size:15.5px; border-radius:12px;
+  padding:13px 22px; transition:transform .2s, box-shadow .2s, background .2s;
+}
+.btn:hover{text-decoration:none; transform:translateY(-1px)}
+.btn-primary{background:var(--accent); color:#11121b}
+.btn-primary:hover{box-shadow:0 8px 28px rgba(196,167,255,.35)}
+.btn-ghost{border:1px solid var(--border); color:var(--text); background:transparent}
+.btn-ghost:hover{border-color:var(--accent)}
+.platforms{margin-top:18px; font-family:var(--mono); font-size:13px; color:var(--muted);
+  animation:rise .7s .3s cubic-bezier(.2,.7,.2,1) both}
+.platforms a{color:var(--dim)}
+.platforms a:hover{color:var(--accent)}
+
+/* hero screenshot */
+.hero-shot{
+  margin:74px 0 0; position:relative;
+  animation:rise .9s .34s cubic-bezier(.2,.7,.2,1) both;
+}
+.frame{
+  border:1px solid var(--border); border-radius:14px; overflow:hidden;
+  background:var(--surface);
+  box-shadow:0 40px 90px -30px rgba(0,0,0,.75), 0 0 0 1px rgba(196,167,255,.06);
+}
+.frame img{display:block; width:100%; height:auto}
+
+/* ───── trust strip ───── */
+.trust{
+  margin:0; padding:30px 0 0; display:flex; flex-wrap:wrap; gap:12px 38px;
+  font-family:var(--mono); font-size:13.5px; color:var(--muted);
+}
+.trust b{color:var(--green); font-weight:500}
+
+/* ───── sections ───── */
+section{padding:118px 0 0}
+.kicker{margin-bottom:18px}
+h2{
+  font-family:var(--display); font-weight:450; font-size:clamp(30px,4vw,44px);
+  line-height:1.12; letter-spacing:-.01em; max-width:22ch;
+}
+h2 em{font-style:italic; color:var(--accent)}
+.feature{display:grid; grid-template-columns:minmax(280px,5fr) 7fr; gap:54px; align-items:center}
+.feature.flip{grid-template-columns:7fr minmax(280px,5fr)}
+.feature.flip .copytext{order:2}
+.feature p{margin-top:18px; color:var(--dim); max-width:46ch}
+.feature .frame{transition:transform .5s cubic-bezier(.2,.7,.2,1)}
+.feature .frame:hover{transform:perspective(1200px) rotateX(1.2deg) rotateY(-1.4deg) translateY(-4px)}
+.feature ul{margin:20px 0 0; list-style:none}
+.feature li{padding-left:26px; position:relative; color:var(--dim); margin-top:10px}
+.feature li::before{content:"→"; position:absolute; left:0; color:var(--accent2); font-family:var(--mono)}
+.feature code, .privacy code{font-family:var(--mono); font-size:.86em; color:var(--accent2);
+  background:var(--surface2); padding:1px 6px; border-radius:5px}
+
+/* scroll reveal */
+.rv{opacity:0; transform:translateY(26px); transition:opacity .7s ease, transform .7s cubic-bezier(.2,.7,.2,1)}
+.rv.on{opacity:1; transform:none}
+
+/* ───── privacy ───── */
+.privacy{
+  margin-top:118px; border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+  background:linear-gradient(180deg, rgba(24,25,39,.6), rgba(17,18,27,0));
+  padding:96px 0;
+}
+.privacy-grid{display:grid; grid-template-columns:1fr 1fr; gap:64px; align-items:center}
+.privacy p{margin-top:18px; color:var(--dim); max-width:46ch}
+.nos{margin-top:30px; display:grid; gap:12px; font-family:var(--mono); font-size:15px}
+.nos div{color:var(--dim)}
+.nos b{color:var(--green); font-weight:500; margin-right:10px}
+.jsonbox{
+  font-family:var(--mono); font-size:13.5px; line-height:1.7;
+  background:var(--surface); border:1px solid var(--border); border-radius:14px;
+  padding:26px 30px; overflow-x:auto; box-shadow:0 30px 60px -30px rgba(0,0,0,.6);
+}
+.jsonbox .k{color:var(--info)} .jsonbox .s{color:var(--green)}
+.jsonbox .c{color:var(--muted)} .jsonbox .p{color:var(--accent2)}
+
+/* ───── themes ───── */
+.themes p{margin-top:18px; color:var(--dim); max-width:52ch}
+.swatches{display:flex; flex-wrap:wrap; gap:10px; margin-top:28px}
+.sw{
+  width:46px; height:46px; border-radius:12px; border:1px solid var(--border);
+  position:relative; transition:transform .25s;
+}
+.sw:hover{transform:translateY(-4px) scale(1.06)}
+.sw::after{content:""; position:absolute; left:10px; bottom:10px; width:14px; height:5px; border-radius:3px; background:var(--swa)}
+.theme-shots{display:grid; grid-template-columns:1fr 1fr; gap:26px; margin-top:44px}
+
+/* ───── footer cta ───── */
+.fin{padding:130px 0 60px; text-align:center}
+.fin h2{margin:0 auto; max-width:18ch}
+.fin .ctas{justify-content:center}
+footer{
+  border-top:1px solid var(--border); margin-top:70px; padding:34px 0 44px;
+  display:flex; flex-wrap:wrap; gap:14px 34px; align-items:center;
+  font-family:var(--mono); font-size:13.5px; color:var(--muted);
+}
+footer .heart{color:var(--accent2)}
+footer nav{margin-left:auto; display:flex; gap:26px}
+footer a{color:var(--dim)}
+
+@keyframes rise{from{opacity:0; transform:translateY(26px)} to{opacity:1; transform:none}}
+@media (max-width:880px){
+  .feature,.feature.flip,.privacy-grid,.theme-shots{grid-template-columns:1fr}
+  .feature.flip .copytext{order:0}
+  section{padding:84px 0 0}
+  .hero{padding-top:72px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important; transition:none!important}
+  .rv{opacity:1; transform:none}
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-glow"></div>
+  <div class="wrap">
+    <div class="brand">
+      <b>Projectum</b><span>by wleeaf</span>
+      <a class="gh" href="https://github.com/wleeaf/projectum">github.com/wleeaf/projectum ↗</a>
+    </div>
+    <h1>Every project, in <em>one window.</em></h1>
+    <p class="sub">The things that pile up around a folder of work — the projects, the
+    study playlists, the loose todos, the notes — tracked in one fast desktop app,
+    and connected to each other. Your data is a <code>.projectum.json</code> sitting next to your work.</p>
+    <div class="ctas">
+      <div class="pipbox" onclick="copyPip(this)" title="Copy">
+        <span class="dollar">$</span><span id="pip">pip install projectum</span><span class="copy">COPY</span>
+      </div>
+      <a class="btn btn-primary" href="https://github.com/wleeaf/projectum/releases/latest/download/Projectum-x86_64.AppImage">Download for Linux</a>
+      <a class="btn btn-ghost" href="https://github.com/wleeaf/projectum/releases/latest">All downloads</a>
+    </div>
+    <p class="platforms">
+      also: <a href="https://github.com/wleeaf/projectum/releases/latest/download/Projectum-windows-x64.exe">windows .exe</a>
+      · <a href="https://github.com/wleeaf/projectum/releases/latest/download/Projectum-macos.dmg">macos .dmg</a>
+      · <a href="https://github.com/wleeaf/projectum">source</a> — free &amp; MIT, keeps itself updated
+    </p>
+    <div class="hero-shot">
+      <div class="frame"><img src="shots/01-projects-dark.png" alt="Projectum's projects view in the dark theme: a sidebar of tagged projects and a detail panel with live Markdown notes" width="1280" height="800" fetchpriority="high"></div>
+    </div>
+    <div class="trust">
+      <span><b>✓</b> no servers</span>
+      <span><b>✓</b> no account</span>
+      <span><b>✓</b> no telemetry</span>
+      <span><b>✓</b> one JSON file, atomic writes</span>
+      <span><b>✓</b> MIT licensed</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="feature rv">
+    <div class="copytext">
+      <div class="label kicker">// the folder is the truth</div>
+      <h2>Point it at a folder. <em>Done.</em></h2>
+      <p>Every subfolder becomes a project — with its size, last-modified time, and
+      git branch read live off a background thread. Mark things done or tested,
+      tag and pin them, write notes in Markdown that renders as you type.</p>
+      <ul>
+        <li>syntax markers hide until your cursor enters the phrase</li>
+        <li>command palette over everything — <code>Ctrl+K</code></li>
+        <li>open in your editor, terminal, or file manager</li>
+      </ul>
+    </div>
+    <div class="frame"><img src="shots/03-notes-paper.png" alt="The Notes tab in the Paper light theme, showing a live-rendered Markdown checklist" loading="lazy" width="1280" height="800"></div>
+  </section>
+
+  <section class="feature flip rv">
+    <div class="frame"><img src="shots/02-calendar-midnight.png" alt="The calendar in the Midnight theme: project and playlist spans drawn as bars across June" loading="lazy" width="1280" height="800"></div>
+    <div class="copytext">
+      <div class="label kicker">// relations</div>
+      <h2>Link <em>anything</em> to anything.</h2>
+      <p>A project to a playlist. A todo to next Tuesday. A note to a span of days.
+      Links are undirected and untyped — just "these are related," the way you
+      actually keep track of work — and the calendar is where the date side of
+      the graph comes together.</p>
+    </div>
+  </section>
+
+  <section class="feature rv">
+    <div class="copytext">
+      <div class="label kicker">// learn alongside</div>
+      <h2>Playlists are <em>projects too.</em></h2>
+      <p>Paste a YouTube playlist URL and Projectum pulls titles and durations
+      with <code>yt-dlp</code>. Tick videos off as you watch, keep per-video notes,
+      refresh without losing your state — and schedule the whole thing on the calendar.</p>
+    </div>
+    <div class="frame"><img src="shots/04-playlists-light.png" alt="A study playlist in the Light theme with per-video watched state and durations" loading="lazy" width="1280" height="800"></div>
+  </section>
+
+</main>
+
+<section class="privacy rv">
+  <div class="wrap privacy-grid">
+    <div>
+      <div class="label kicker">// your data, literally yours</div>
+      <h2>The database is a file <em>next to your work.</em></h2>
+      <p>Per-folder state lives in <code>.projectum.json</code> inside the folder itself —
+      commit it with your code or ignore it. Writes are atomic, so an interrupted
+      save can't corrupt anything. Rename a folder and its metadata waits, then
+      comes back.</p>
+      <div class="nos">
+        <div><b>0</b> servers, accounts, sign-ins</div>
+        <div><b>0</b> analytics, crash reporters, phone-homes</div>
+        <div><b>1</b> read-only GitHub call to check for updates — and a toggle for it</div>
+      </div>
+    </div>
+    <pre class="jsonbox"><span class="c">// &lt;your-folder&gt;/.projectum.json</span>
+{
+  <span class="k">"projects"</span>: [{
+    <span class="k">"name"</span>: <span class="s">"aurora-engine"</span>,
+    <span class="k">"tags"</span>: [<span class="s">"rust"</span>, <span class="s">"core"</span>],
+    <span class="k">"completed"</span>: <span class="p">false</span>,
+    <span class="k">"notes"</span>: <span class="s">"# Aurora\n\nRendering core…"</span>
+  }],
+  <span class="k">"todos"</span>: […],
+  <span class="k">"playlists"</span>: […],
+  <span class="k">"note_docs"</span>: […]
+}</pre>
+  </div>
+</section>
+
+<main class="wrap">
+  <section class="themes rv">
+    <div class="label kicker">// 19 themes, every one readable</div>
+    <h2>Dark, light, and <em>everything between.</em></h2>
+    <p>Catppuccin, Nord, Gruvbox, Solarized, Rosé Pine, Tokyo Night — plus a few
+    originals. Every theme is checked in CI against WCAG contrast floors, so
+    muted text never disappears into the background. Switching crossfades.</p>
+    <div class="swatches" aria-hidden="true">
+      <div class="sw" style="background:#11121b;--swa:#c4a7ff" title="Dark"></div>
+      <div class="sw" style="background:#eff1f5;--swa:#8839ef" title="Light"></div>
+      <div class="sw" style="background:#000000;--swa:#2dd4bf" title="Midnight"></div>
+      <div class="sw" style="background:#1a1430;--swa:#ff2ec4" title="Synthwave"></div>
+      <div class="sw" style="background:#151110;--swa:#ff5c33" title="Ember"></div>
+      <div class="sw" style="background:#2e3440;--swa:#88c0d0" title="Nord"></div>
+      <div class="sw" style="background:#282a36;--swa:#bd93f9" title="Dracula"></div>
+      <div class="sw" style="background:#1a1b26;--swa:#7aa2f7" title="Tokyo Night"></div>
+      <div class="sw" style="background:#282828;--swa:#fabd2f" title="Gruvbox"></div>
+      <div class="sw" style="background:#fafafa;--swa:#059669" title="Paper"></div>
+      <div class="sw" style="background:#002b36;--swa:#268bd2" title="Solarized"></div>
+      <div class="sw" style="background:#191724;--swa:#ebbcba" title="Rosé Pine"></div>
+    </div>
+    <div class="theme-shots">
+      <div class="frame"><img src="shots/05-todo-gruvbox.png" alt="The Todo tab in the Gruvbox theme" loading="lazy" width="1280" height="800"></div>
+      <div class="frame"><img src="shots/01-projects-dark.png" alt="The Projects tab in the default dark theme" loading="lazy" width="1280" height="800"></div>
+    </div>
+  </section>
+
+  <section class="fin rv">
+    <div class="label kicker">// free forever</div>
+    <h2>Your work, <em>organized</em> in a minute.</h2>
+    <div class="ctas">
+      <div class="pipbox" onclick="copyPip(this)" title="Copy">
+        <span class="dollar">$</span><span>pip install projectum</span><span class="copy">COPY</span>
+      </div>
+      <a class="btn btn-primary" href="https://github.com/wleeaf/projectum/releases/latest">Download</a>
+      <a class="btn btn-ghost" href="https://github.com/sponsors/wleeaf">♥ Sponsor</a>
+    </div>
+  </section>
+
+  <footer>
+    <span>Projectum — MIT © 2026 <a href="https://github.com/wleeaf">wleeaf</a></span>
+    <span>built with PySide6 <span class="heart">·</span> no clouds were harmed</span>
+    <nav>
+      <a href="https://github.com/wleeaf/projectum">GitHub</a>
+      <a href="https://github.com/wleeaf/projectum/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://pypi.org/project/projectum/">PyPI</a>
+      <a href="https://github.com/sponsors/wleeaf">Sponsor</a>
+    </nav>
+  </footer>
+</main>
+
+<script>
+function copyPip(el){
+  navigator.clipboard.writeText("pip install projectum").then(()=>{
+    const c=el.querySelector(".copy"), t=c.textContent;
+    c.textContent="COPIED ✓"; c.style.color="var(--green)";
+    setTimeout(()=>{c.textContent=t; c.style.color="";},1600);
+  });
+}
+const io=new IntersectionObserver(es=>es.forEach(e=>{
+  if(e.isIntersecting){e.target.classList.add("on"); io.unobserve(e.target);}
+}),{threshold:.12});
+document.querySelectorAll(".rv").forEach(el=>io.observe(el));
+</script>
+</body>
+</html>
