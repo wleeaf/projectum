@@ -1105,7 +1105,7 @@ class SettingsDialog(QWidget):
 
         # ── Updates ──
         v.addSpacing(4)
-        self.update_check = QCheckBox("Check for updates on launch")
+        self.update_check = QCheckBox("Keep Projectum up to date automatically")
         self.update_check.setObjectName("settingsField")
         self.update_check.setCursor(Qt.CursorShape.PointingHandCursor)
         self.update_check.setChecked(bool(current_check_updates))
@@ -2335,7 +2335,23 @@ class UpdateBanner(QWidget):
         h.addWidget(self.dismiss_btn)
 
     def show_update(self, version: str) -> None:
+        """Manual mode: a newer release exists, offer the download page."""
         self.label.setText(f"Projectum {version} is available.")
+        self.download_btn.setText("Download")
+        self.download_btn.setVisible(True)
+        self.setVisible(True)
+
+    def show_updating(self, version: str) -> None:
+        """Auto-update in flight: progress note, no action button yet."""
+        self.label.setText(f"Updating to Projectum {version}…")
+        self.download_btn.setVisible(False)
+        self.setVisible(True)
+
+    def show_restart(self, version: str) -> None:
+        """Auto-update done: the new version runs on next launch."""
+        self.label.setText(f"Projectum {version} installed — restart to apply.")
+        self.download_btn.setText("Restart")
+        self.download_btn.setVisible(True)
         self.setVisible(True)
 
 

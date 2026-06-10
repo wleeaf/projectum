@@ -612,6 +612,25 @@ def legible_ink(color: str, bg: str, target: float = 3.5) -> str:
     return out
 
 
+def _check_svg_url(color: str) -> str:
+    """Path (as a QSS ``url()`` target) to a checkmark SVG drawn in ``color``.
+
+    QSS can't embed data URIs, so the tick is written once per color to the
+    temp dir and referenced by file path. Memoized via the file itself.
+    """
+    import tempfile
+    from pathlib import Path
+    path = Path(tempfile.gettempdir()) / f"projectum-check-{color.lstrip('#')}.svg"
+    if not path.exists():
+        path.write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+            f'<path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="{color}"'
+            ' stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'
+            "</svg>"
+        )
+    return path.as_posix()
+
+
 # ──────────────────────── stylesheet builder ────────────────────────
 
 
@@ -966,6 +985,34 @@ QProgressBar {{
 QProgressBar::chunk {{
     background-color: {ACCENT};
     border-radius: 3px;
+}}
+
+QCheckBox {{
+    color: {TEXT};
+    spacing: 8px;
+}}
+
+QCheckBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    background-color: {SURFACE_2};
+}}
+
+QCheckBox::indicator:hover {{
+    border-color: {ACCENT};
+}}
+
+QCheckBox::indicator:checked {{
+    background-color: {ACCENT};
+    border-color: {ACCENT};
+    image: url({_check_svg_url(BG)});
+}}
+
+QCheckBox::indicator:checked:hover {{
+    background-color: {ACCENT_HOVER};
+    border-color: {ACCENT_HOVER};
 }}
 
 QLabel#videoListEmpty {{

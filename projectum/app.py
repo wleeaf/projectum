@@ -12,6 +12,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     Qt, QTimer, QSize, QThreadPool, QFileSystemWatcher, QObject, QEvent,
+    QProcess,
 )
 from PySide6.QtGui import QFont, QIcon, QKeySequence, QShortcut, QAction
 from PySide6.QtWidgets import (
@@ -44,6 +45,7 @@ from .widgets import (
     WindowControlButton, _format_date_iso, _format_temporal,
 )
 from .youtube import PlaylistFetchRunnable
+from . import update as update_mod
 from .update import UpdateCheckRunnable
 from . import __version__ as APP_VERSION
 
@@ -255,10 +257,11 @@ class MainWindow(QMainWindow):
 
         # Update banner (hidden until a newer release is found).
         self._update_banner = UpdateBanner()
-        self._update_banner.download_clicked.connect(self._open_update_url)
+        self._update_banner.download_clicked.connect(self._on_update_action)
         self._update_banner.dismissed.connect(self._dismiss_update)
         self._update_url = ""
         self._update_version = ""
+        self._update_ready = False  # auto-update applied; button = Restart
         layout.addWidget(self._update_banner)
 
         self.stack = QStackedWidget()
@@ -3352,16 +3355,50 @@ class MainWindow(QMainWindow):
         self._size_pool.start(runnable)
 
     def _on_update_available(self, version: str, url: str) -> None:
-        # Respect a per-version dismissal so we don't nag about the same one.
-        if load_state().get("update_dismissed") == version:
-            return
         self._update_version = version
         self._update_url = url
+        if update_mod.can_auto_update():
+            # Hands-off path: install in place now, ask for a restart after.
+            self._update_banner.show_updating(version)
+            apply_run = update_mod.UpdateApplyRunnable(version)
+            apply_run.signals.finished.connect(self._on_update_applied)
+            self._size_pool.start(apply_run)
+            return
+        # Manual path (frozen builds): banner with a Download button,
+        # respecting a per-version dismissal so we don't nag.
+        if load_state().get("update_dismissed") == version:
+            return
         self._update_banner.show_update(version)
 
-    def _open_update_url(self) -> None:
+    def _on_update_applied(self, ok: bool, detail: str) -> None:
+        if ok:
+            self._update_ready = True
+            self._update_banner.show_restart(self._update_version)
+        else:
+            # Auto-update couldn't apply (dirty checkout, offline mid-download…):
+            # fall back to the manual banner rather than failing silently.
+            if load_state().get("update_dismissed") == self._update_version:
+                self._update_banner.setVisible(False)
+                return
+            self._update_banner.show_update(self._update_version)
+
+    def _on_update_action(self) -> None:
+        if self._update_ready:
+            self._restart_app()
+            return
         url = self._update_url or "https://github.com/wleeaf/projectum/releases/latest"
         QDesktopServices.openUrl(QUrl(url))
+
+    def _restart_app(self) -> None:
+        appimage = os.environ.get("APPIMAGE")
+        if appimage:
+            QProcess.startDetached(appimage, [])
+        else:
+            QProcess.startDetached(sys.executable, sys.argv)
+        self.close()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     def _dismiss_update(self) -> None:
         self._update_banner.setVisible(False)
