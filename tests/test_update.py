@@ -84,6 +84,49 @@ def test_install_channel_detects_git_checkout():
     assert can_auto_update()
 
 
+def test_managed_channels_never_self_update(monkeypatch):
+    # Flatpak / Snap are detected before the 'git' check, so they win even from
+    # inside the repo checkout the tests run in.
+    from projectum.update import can_auto_update, install_channel
+    for var, val in (("FLATPAK_ID", "io.github.wleeaf.Projectum"), ("SNAP", "/snap/projectum/x")):
+        monkeypatch.setenv(var, val)
+        assert install_channel() == "managed"
+        assert not can_auto_update()
+        monkeypatch.delenv(var)
+
+
+def test_externally_managed_python_is_managed(monkeypatch):
+    # A distro/Homebrew Python (PEP 668 marker) and no source checkout around it.
+    import projectum.update as up
+    monkeypatch.setattr(up, "_is_git_checkout", lambda: False)
+    monkeypatch.setattr(up, "_is_externally_managed", lambda: True)
+    assert up.install_channel() == "managed"
+    assert not up.can_auto_update()
+
+
+def test_git_checkout_wins_over_externally_managed(monkeypatch):
+    # A dev running from source on a distro Python still updates via git pull,
+    # not mistaken for a system package.
+    import projectum.update as up
+    monkeypatch.setattr(up, "_is_git_checkout", lambda: True)
+    monkeypatch.setattr(up, "_is_externally_managed", lambda: True)
+    assert up.install_channel() == "git"
+
+
+def test_managed_install_shows_info_banner_and_never_upgrades(window, qapp, monkeypatch):
+    started = []
+    monkeypatch.setattr(window, "_size_pool", type("P", (), {"start": lambda s, r: started.append(r)})())
+    monkeypatch.setattr("projectum.update.install_channel", lambda: "managed")
+    save_state({})  # no prior dismissal
+
+    window._on_update_available("v9.9.9", "https://example.test/r")
+    # Info-only: a managed banner, no Download/apply action, no pip upgrade queued.
+    assert window._update_banner.isVisible()
+    assert "package manager" in window._update_banner.label.text()
+    assert not window._update_banner.download_btn.isVisibleTo(window._update_banner)
+    assert started == []
+
+
 def test_auto_update_applies_then_offers_restart(window, qapp, monkeypatch):
     class FakePool:
         def __init__(self):

@@ -3364,11 +3364,15 @@ class MainWindow(QMainWindow):
             apply_run.signals.finished.connect(self._on_update_applied)
             self._size_pool.start(apply_run)
             return
-        # Manual path (frozen builds): banner with a Download button,
-        # respecting a per-version dismissal so we don't nag.
+        # Non-auto channels, respecting a per-version dismissal so we don't nag.
+        # Managed installs (Flatpak/Snap/conda/distro) get an info-only banner —
+        # their package manager owns the update; frozen builds offer a download.
         if load_state().get("update_dismissed") == version:
             return
-        self._update_banner.show_update(version)
+        if update_mod.install_channel() == "managed":
+            self._update_banner.show_update_managed(version)
+        else:
+            self._update_banner.show_update(version)
 
     def _on_update_applied(self, ok: bool, detail: str) -> None:
         if ok:

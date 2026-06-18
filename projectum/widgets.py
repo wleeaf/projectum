@@ -2341,6 +2341,15 @@ class UpdateBanner(QWidget):
         self.download_btn.setVisible(True)
         self.setVisible(True)
 
+    def show_update_managed(self, version: str) -> None:
+        """Managed install (Flatpak/Snap/conda/distro): inform only — the
+        package manager owns the update, so there's no action button."""
+        self.label.setText(
+            f"Projectum {version} is available — update it with your package manager."
+        )
+        self.download_btn.setVisible(False)
+        self.setVisible(True)
+
     def show_updating(self, version: str) -> None:
         """Auto-update in flight: progress note, no action button yet."""
         self.label.setText(f"Updating to Projectum {version}…")

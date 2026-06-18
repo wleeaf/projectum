@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -81,21 +82,73 @@ class UpdateCheckRunnable(QRunnable):
 # ──────────────────────── self-update ────────────────────────
 
 
+def _is_conda_package() -> bool:
+    """True if Projectum was installed by conda — i.e. a conda-meta record for
+    it exists in this prefix. (A plain pip-into-a-conda-env install has no such
+    record, so this stays specific to genuinely conda-managed installs.)"""
+    try:
+        meta = Path(sys.prefix) / "conda-meta"
+        return meta.is_dir() and any(meta.glob("projectum-*.json"))
+    except OSError:
+        return False
+
+
+def _is_git_checkout() -> bool:
+    """True if Projectum is running from a source checkout (a ``.git`` sits
+    beside the package), where ``git pull`` is the right update path."""
+    return (Path(__file__).resolve().parent.parent / ".git").exists()
+
+
+def _is_externally_managed() -> bool:
+    """True if this interpreter is marked externally-managed (PEP 668) — a
+    distro- or Homebrew-packaged Python where ``pip install --upgrade`` is
+    refused. Mirrors pip's own check, so it predicts whether a pip self-update
+    would actually succeed. A virtualenv is never marked, so source/pip installs
+    in a venv stay upgradable."""
+    for key in ("stdlib", "platstdlib"):
+        try:
+            path = sysconfig.get_path(key)
+        except (KeyError, OSError):
+            continue
+        if path and (Path(path) / "EXTERNALLY-MANAGED").exists():
+            return True
+    return False
+
+
 def install_channel() -> str:
-    """How this Projectum is installed: 'appimage', 'frozen' (PyInstaller
-    exe/app), 'git' (source checkout), or 'pip' (site-packages)."""
+    """How this Projectum is installed, which decides the update strategy:
+
+      'appimage'  the AppImage           — replace the file in place
+      'frozen'    PyInstaller .exe/.app   — manual download (can't self-replace)
+      'git'       a source checkout       — git pull --ff-only
+      'pip'       a writable pip env      — pip install --upgrade
+      'managed'   Flatpak/Snap/conda/distro package — the package manager owns
+                  updates; we must never touch the install
+
+    The Flatpak/Snap/conda signals are checked before 'git' because they're
+    specific enough never to fire on a dev checkout; the generic PEP 668 marker
+    is checked after 'git' so a checkout run from a system Python still updates
+    via git rather than being mistaken for a distro package.
+    """
     if os.environ.get("APPIMAGE"):
         return "appimage"
     if getattr(sys, "frozen", False):
         return "frozen"
-    if (Path(__file__).resolve().parent.parent / ".git").exists():
+    if (os.environ.get("FLATPAK_ID") or os.environ.get("SNAP")
+            or Path("/.flatpak-info").exists() or _is_conda_package()):
+        return "managed"
+    if _is_git_checkout():
         return "git"
+    if _is_externally_managed():
+        return "managed"
     return "pip"
 
 
 def can_auto_update() -> bool:
-    """Frozen Windows/macOS bundles can't safely replace their own binary
-    while running, so they keep the manual Download banner."""
+    """In-place self-update is only safe where we own the install. Frozen
+    bundles can't replace their running binary; 'managed' installs belong to a
+    package manager (Flatpak, Snap, conda, distro) that owns updates — both
+    keep their hands off and let the user act instead."""
     return install_channel() in ("appimage", "git", "pip")
 
 
