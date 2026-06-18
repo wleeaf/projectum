@@ -14,8 +14,9 @@
     </p>
     <p>
       The same window tracks YouTube playlists (titles, durations, watched
-      state and per-video notes), keeps a to-do list, and a folder-wide
-      scratchpad. A command palette searches across all of it.
+      state and per-video notes), keeps a to-do list, a notebook of Markdown
+      notes, and a calendar that draws anything linked to a date. A command
+      palette searches across all of it.
     </p>
     <p>
       Everything for a folder is stored in a single, human-readable JSON file
@@ -40,16 +41,16 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/wleeaf/projectum/main/docs/screenshots/01-projects.png</image>
-      <caption>Projects view with the detail panel</caption>
+      <image>https://raw.githubusercontent.com/wleeaf/projectum/main/docs/screenshots/01-projects-dark.png</image>
+      <caption>Projects view with live-rendered Markdown notes</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/wleeaf/projectum/main/docs/screenshots/02-playlists.png</image>
-      <caption>YouTube playlists with per-video tracking</caption>
+      <image>https://raw.githubusercontent.com/wleeaf/projectum/main/docs/screenshots/02-calendar-midnight.png</image>
+      <caption>Calendar: anything linked to a date, drawn as bars across the weeks</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/wleeaf/projectum/main/docs/screenshots/04-command-palette.png</image>
-      <caption>Command palette over everything</caption>
+      <image>https://raw.githubusercontent.com/wleeaf/projectum/main/docs/screenshots/04-playlists-light.png</image>
+      <caption>YouTube playlists with per-video watched state and notes</caption>
     </screenshot>
   </screenshots>
 
@@ -69,6 +70,10 @@
   </keywords>
 
   <releases>
+    <release version="2.3.0" date="2026-06-18"/>
+    <release version="2.2.0" date="2026-06-18"/>
+    <release version="2.1.0" date="2026-06-10"/>
+    <release version="2.0.0" date="2026-06-10"/>
     <release version="1.6.0" date="2026-06-02"/>
   </releases>
 </component>

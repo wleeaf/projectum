@@ -1,15 +1,16 @@
 # Flatpak manifest for Projectum.
 #
-# DRAFT — starting point for a Flathub submission, not yet submission-ready:
-#   1. yt-dlp + its dependencies must be VENDORED for an offline build. Generate
-#      a module with flatpak-pip-generator and replace the `yt-dlp` module below:
-#        python flatpak-pip-generator --runtime org.kde.Sdk//6.8 yt-dlp
-#      (PySide6 itself is provided by the io.qt.PySide.BaseApp, so don't vendor it.)
-#   2. Build & test locally:
+# Fully pinned and offline-buildable (yt-dlp wheel + the v2.3.0 source tarball,
+# both with sha256). yt-dlp's only dependencies are optional extras, so a
+# --no-deps install of the base wheel is correct; PySide6 comes from the
+# io.qt.PySide.BaseApp. Remaining steps for a Flathub submission:
+#   1. Build & test locally:
 #        flatpak install flathub org.kde.Sdk//6.8 org.kde.Platform//6.8 io.qt.PySide.BaseApp//6.8
 #        flatpak-builder --user --install --force-clean build-dir io.github.wleeaf.Projectum.yml
-#   3. Validate metadata: appstreamcli validate ...metainfo.xml ; desktop-file-validate ...desktop
-#   4. Submit to github.com/flathub/flathub (new-pr branch) and iterate with reviewers.
+#        flatpak run io.github.wleeaf.Projectum
+#   2. Validate metadata: appstreamcli validate ...metainfo.xml ; desktop-file-validate ...desktop
+#   3. Submit to github.com/flathub/flathub (a new-pr branch) and iterate with reviewers.
+#      Bump both pinned versions (this file + the metainfo release list) each release.
 id: io.github.wleeaf.Projectum
 runtime: org.kde.Platform
 runtime-version: "6.8"
@@ -34,16 +35,15 @@ cleanup:
   - "*.la"
 
 modules:
-  # Replace with the flatpak-pip-generator output (see header note 1).
   - name: yt-dlp
     buildsystem: simple
     build-commands:
-      - pip3 install --prefix=${FLATPAK_DEST} --no-deps --no-build-isolation yt-dlp
+      - pip3 install --prefix=${FLATPAK_DEST} --no-deps --no-build-isolation
+        yt_dlp-2026.6.9-py3-none-any.whl
     sources:
       - type: file
-        # placeholder — pin the real wheel URL + sha256, or vendor via generator
-        url: https://files.pythonhosted.org/packages/source/y/yt-dlp/yt_dlp.tar.gz
-        sha256: REPLACE_WITH_SHA256
+        url: https://files.pythonhosted.org/packages/f3/ee/188a3dadf9dfdac713243521f919feca1cd091d4358c9ea7e8ebb710a7cc/yt_dlp-2026.6.9-py3-none-any.whl
+        sha256: 442ba4c75724b9496144c8434b617962ee08d0ee7c26ec663848fe9b78d5a3e4
 
   - name: projectum
     buildsystem: simple
@@ -56,5 +56,6 @@ modules:
       - install -Dm644 packaging/flatpak/${FLATPAK_ID}.metainfo.xml
         ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
     sources:
-      - type: dir
-        path: ../..
+      - type: archive
+        url: https://github.com/wleeaf/projectum/archive/refs/tags/v2.3.0.tar.gz
+        sha256: 96bbbbc57d9749fca01650de3c85c2c30aba125156a584f66a8ed443e3467d6c
