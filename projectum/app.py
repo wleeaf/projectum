@@ -1518,6 +1518,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Projectum", f"Could not open folder:\n{e}")
             return
+        # If a tracked folder was renamed/moved while closed, follow its links.
+        self._apply_detected_renames()
 
         if self._watcher.directories():
             self._watcher.removePaths(self._watcher.directories())
@@ -1606,13 +1608,33 @@ class MainWindow(QMainWindow):
         self._flush_pending_writes()
         before = self._project_snapshot()
         self.store.load()
+        renamed = self._apply_detected_renames()
         after = self._project_snapshot()
-        if before == after:
+        if before == after and not renamed:
             return
         self._full_rebuild_list(preserve_name=cur_name)
         self._rebuild_playlists_list()
         self._rebuild_todo_list()
         self._update_stats()
+        if renamed:
+            self._rebuild_index_async()
+            if getattr(self, "current_tab", None) == "calendar":
+                self._refresh_calendar()
+
+    def _apply_detected_renames(self) -> int:
+        """Replay any folder renames/moves the store detected on its last load
+        onto the global relation graph, so a renamed project keeps its links.
+        Returns the number of edges rewritten."""
+        if not self.store or not self.store.last_renames:
+            return 0
+        home = str(self.store.root)
+        changed = 0
+        for old, new in self.store.last_renames:
+            changed += self._link_store.rekey(
+                make_ref("project", home, old),
+                make_ref("project", home, new),
+            )
+        return changed
 
     def _project_snapshot(self) -> tuple:
         if not self.store:
@@ -1668,6 +1690,7 @@ class MainWindow(QMainWindow):
         if not self.store:
             return
         self.store.set_expansion(relpath, depth)        # save + rescan from disk
+        self._apply_detected_renames()                  # a moved-in folder keeps its links
         self.current_project = self.store.projects.get(relpath)
         self._full_rebuild_list(preserve_name=relpath)
         self._update_stats()
@@ -3536,6 +3559,11 @@ class MainWindow(QMainWindow):
 
     def _relate(self, a, b) -> None:
         if self._link_store.add(a, b):
+            # Persist the project store too: a project endpoint records its
+            # filesystem id (_fsid) now, so a later rename/move keeps this link
+            # even if the project had no other metadata to trigger a save.
+            if self.store:
+                self.store.save()
             self._on_links_changed()
 
     def _open_relate_date_picker(self, subject_ref) -> None:

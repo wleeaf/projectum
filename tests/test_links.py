@@ -341,3 +341,30 @@ def test_prune_links_on_todo_delete(window, qapp, tmp_path):
     assert window._link_store.degree(ref) == 1
     window._remove_todo(todo.id)                 # explicit deletion prunes edges
     assert window._link_store.degree(ref) == 0
+
+
+# ── rekey: a relation follows a renamed/moved entity ──
+
+def test_rekey_follows_renamed_entity(tmp_path):
+    s = LinkStore(tmp_path / "links.json")
+    a = make_ref("project", "/w", "alpha")
+    a2 = make_ref("project", "/w", "beta")
+    b = date_ref("2026-07-01")
+    c = make_ref("playlist", "/w", "pl1")
+    s.add(a, b)
+    s.add(a, c)
+    assert s.rekey(a, a2) == 2
+    assert set(s.neighbors(a2)) == {b, c}     # links moved to the new identity
+    assert s.neighbors(a) == []               # nothing left on the old one
+    assert s.rekey(a, a2) == 0                # no-op when nothing matches
+    s2 = LinkStore(tmp_path / "links.json")   # and it persisted
+    assert set(s2.neighbors(a2)) == {b, c}
+
+
+def test_rekey_drops_would_be_selfloop(tmp_path):
+    s = LinkStore(tmp_path / "links.json")
+    a = make_ref("project", "/w", "alpha")
+    a2 = make_ref("project", "/w", "beta")
+    s.add(a, a2)                              # already linked to its future name
+    assert s.rekey(a, a2) == 1
+    assert s.neighbors(a2) == [] and s.all_edges() == []   # self-loop dropped

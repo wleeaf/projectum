@@ -308,3 +308,64 @@ def test_prune_unused_tag_colors(tmp_path):
 def test_video_and_todo_defaults():
     assert Video(id="x", title="t", url="u").completed is False
     assert Todo(id="x", text="t").done is False
+
+
+# ── rename/move detection (inode-based), so metadata + relations can follow ──
+
+def test_detects_folder_rename(tmp_path):
+    import os
+    s = _store(tmp_path, "alpha")
+    s.projects["alpha"].tags = ["keep"]
+    s.projects["alpha"].notes = "n"
+    s.save()                                     # persists alpha's _fsid
+    os.rename(tmp_path / "alpha", tmp_path / "beta")
+    s.load()
+    assert s.last_renames == [("alpha", "beta")]
+    assert "beta" in s.projects and "alpha" not in s.projects
+    assert s.projects["beta"].tags == ["keep"]   # metadata followed the folder
+    assert s.projects["beta"].notes == "n"
+    assert "alpha" not in s.orphans              # migrated, not orphaned
+
+
+def test_detects_move_into_expanded_subfolder(tmp_path):
+    import os
+    (tmp_path / "group").mkdir()
+    s = _store(tmp_path, "alpha")
+    s.projects["alpha"].tags = ["t"]
+    s.set_expansion("group", 1)                  # group's children become projects
+    s.save()
+    os.rename(tmp_path / "alpha", tmp_path / "group" / "alpha")
+    s.load()
+    assert s.last_renames == [("alpha", "group/alpha")]
+    assert s.projects["group/alpha"].tags == ["t"]
+
+
+def test_no_false_rename_on_unrelated_add_remove(tmp_path):
+    import shutil
+    s = _store(tmp_path, "alpha")
+    s.projects["alpha"].tags = ["t"]
+    s.save()
+    shutil.rmtree(tmp_path / "alpha")            # delete one...
+    (tmp_path / "gamma").mkdir()                 # ...add an unrelated other
+    s.load()
+    assert s.last_renames == []                  # distinct inodes -> no match
+    assert "gamma" in s.projects and not s.projects["gamma"].tags
+    assert "alpha" in s.orphans                  # kept, not merged into gamma
+
+
+def test_recovers_move_into_later_expanded_folder(tmp_path):
+    import os
+    (tmp_path / "group").mkdir()
+    s = _store(tmp_path, "alpha")
+    s.projects["alpha"].tags = ["t"]
+    s.save()
+    # Move alpha under group while group is NOT expanded -> alpha orphans.
+    os.rename(tmp_path / "alpha", tmp_path / "group" / "alpha")
+    s.load()
+    assert s.last_renames == []          # not surfaced yet (group unexpanded)
+    assert "alpha" in s.orphans
+    # Expanding group surfaces group/alpha and recovers the moved identity.
+    s.set_expansion("group", 1)
+    assert s.last_renames == [("alpha", "group/alpha")]
+    assert s.projects["group/alpha"].tags == ["t"]
+    assert "alpha" not in s.orphans

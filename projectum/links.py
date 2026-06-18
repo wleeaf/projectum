@@ -266,6 +266,24 @@ class LinkStore:
             self.save()
         return len(gone)
 
+    def rekey(self, old: EntityRef, new: EntityRef) -> int:
+        """Rewrite every edge touching ``old`` to touch ``new`` instead — used
+        when a project folder is renamed/moved so its relations follow it.
+        De-duplicates and drops any self-loop the rewrite would create; returns
+        the number of edges rewritten. Saves once if anything changed."""
+        if old == new:
+            return 0
+        touched = [edge for edge in self._edges if old in edge]
+        if not touched:
+            return 0
+        for edge in touched:
+            self._edges.discard(edge)
+            other = next(iter(edge - {old}))
+            if other != new:  # equal would be a self-loop — drop it
+                self._edges.add(frozenset((new, other)))
+        self.save()
+        return len(touched)
+
     def all_edges(self) -> list[tuple[EntityRef, EntityRef]]:
         return [tuple(sorted(e, key=lambda r: r.sort_key())) for e in self._edges]
 

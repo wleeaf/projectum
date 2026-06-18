@@ -230,6 +230,10 @@ class ProjectStore:
         self.todos: list[Todo] = []  # folder-level to-do list (Todo tab)
         self.notes: str = ""  # legacy single scratchpad; migrated into note_docs
         self.note_docs: list[Note] = []  # folder-level notes shown in Notes tab
+        # Renames/moves detected on the last load(), as (old_relpath, new_relpath).
+        # A caller that owns the relation graph (the app) replays these onto it so
+        # links follow a renamed folder. Reset and repopulated every load().
+        self.last_renames: list[tuple[str, str]] = []
         self.load()
 
     @property
@@ -320,6 +324,49 @@ class ProjectStore:
 
         scanned = self._scan_project_dirs()   # {posix relpath: absolute Path}
 
+        # --- detect renames/moves so metadata + relations follow the folder ---
+        # A directory keeps its (st_dev, st_ino) across an mv on the same
+        # filesystem, so a project that was active last load and is gone now,
+        # whose inode reappears under a name we've never seen, is that same
+        # folder renamed and/or moved. Carry its metadata over and report the
+        # rename so the owner of the relation graph can rekey links onto it.
+        self.last_renames = []
+        new_to_old: dict[str, str] = {}
+        consumed_old: set[str] = set()
+
+        def _fsid(d) -> tuple[int, int, int] | None:
+            f = d.get("_fsid") if isinstance(d, dict) else None
+            if (isinstance(f, list) and len(f) == 3
+                    and all(isinstance(x, int) for x in f)):
+                return (f[0], f[1], f[2])  # (st_dev, st_ino, st_mtime_ns)
+            return None
+
+        # Consider both active and orphaned prior entries: a folder moved into a
+        # not-yet-expanded subfolder first lands in orphans, then is recognised
+        # when the subfolder is expanded. The (dev, ino, mtime) triple is strict
+        # enough that stale orphan ids can't collide by accident.
+        vanished_by_fsid: dict[tuple[int, int, int], list[str]] = {}
+        for old_name, d in all_persisted.items():
+            fid = _fsid(d)
+            if fid is not None and old_name not in scanned:
+                vanished_by_fsid.setdefault(fid, []).append(old_name)
+        if vanished_by_fsid:
+            for name in sorted(scanned):
+                if name in all_persisted:
+                    continue  # already known under this name — not a fresh arrival
+                try:
+                    st = scanned[name].stat()
+                except OSError:
+                    continue
+                key = (st.st_dev, st.st_ino, st.st_mtime_ns)
+                cands = [o for o in vanished_by_fsid.get(key, [])
+                         if o not in consumed_old]
+                if len(cands) == 1:  # only act on an unambiguous single match
+                    old = cands[0]
+                    new_to_old[name] = old
+                    consumed_old.add(old)
+                    self.last_renames.append((old, name))
+
         # Preserve existing Project instances by name when reloading. The
         # alternative — recreating instances every load — leaves callers
         # holding stale references (current_project, sidebar rows), so
@@ -332,10 +379,17 @@ class ProjectStore:
         for name in sorted(scanned, key=str.lower):
             entry = scanned[name]      # name is the POSIX relpath; entry the abspath
             seen.add(name)
-            d = all_persisted.get(name, {})
+            src = new_to_old.get(name, name)  # pull metadata from the pre-rename name
+            d = all_persisted.get(src, {})
             if not isinstance(d, dict):
                 d = {}
             ex = existing_projects.get(name)
+            if ex is None and src != name:
+                # Live rename: carry the in-memory instance over so references
+                # (current_project, rows) stay valid; just retitle it.
+                ex = existing_projects.get(src)
+                if ex is not None:
+                    ex.name = name
             if ex is not None:
                 ex.path = str(entry)
                 ex.completed = bool(d.get("completed", False))
@@ -370,6 +424,7 @@ class ProjectStore:
             name: d
             for name, d in all_persisted.items()
             if name not in seen
+            and name not in consumed_old  # migrated to a renamed folder, not orphaned
             and isinstance(d, dict)
             and (
                 d.get("notes") or d.get("tags")
@@ -510,6 +565,31 @@ class ProjectStore:
             ))
         self.note_docs = new_notes
 
+    def _project_payload(self, p: Project) -> dict:
+        d = {
+            "completed": p.completed,
+            "notes": p.notes,
+            "tags": p.tags,
+            "pinned": p.pinned,
+            "position": p.position,
+            "tested": p.tested,
+            "suspended": p.suspended,
+            "failed": p.failed,
+            "start": p.start,
+            "end": p.end,
+        }
+        # Filesystem identity, so a rename/move on the same filesystem is
+        # recognised on the next scan (see load()'s rename detection). mtime is
+        # carried alongside the inode because the OS recycles inode numbers
+        # immediately on delete: a fresh folder can land on a deleted project's
+        # inode, but not its (preserved-across-mv) mtime.
+        try:
+            st = os.stat(p.path)
+            d["_fsid"] = [st.st_dev, st.st_ino, st.st_mtime_ns]
+        except OSError:
+            pass
+        return d
+
     def save(self) -> None:
         payload = {
             "version": 2,
@@ -519,18 +599,7 @@ class ProjectStore:
                 for n in self.note_docs
             ],
             "projects": {
-                name: {
-                    "completed": p.completed,
-                    "notes": p.notes,
-                    "tags": p.tags,
-                    "pinned": p.pinned,
-                    "position": p.position,
-                    "tested": p.tested,
-                    "suspended": p.suspended,
-                    "failed": p.failed,
-                    "start": p.start,
-                    "end": p.end,
-                }
+                name: self._project_payload(p)
                 for name, p in self.projects.items()
             },
             "_orphans": self.orphans,

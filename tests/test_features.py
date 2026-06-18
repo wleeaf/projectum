@@ -207,3 +207,25 @@ def test_markdown_editor_conceals_markers_outside_cursor_phrase(qapp):
     ed.highlighter.set_active_position(0, 0)  # cursor moves up to the heading
     assert _marker_alpha(ed, 0, 0) == 255     # heading '#' revealed line-wide
     ed.deleteLater()
+
+
+def test_relation_survives_folder_rename(window, qapp, tmp_path):
+    """End-to-end through the real relate path: a project with *only* a relation
+    (no other metadata) still keeps that relation when its folder is renamed."""
+    import os
+    from projectum.links import make_ref, date_ref
+    root = tmp_path / "work"
+    (root / "alpha").mkdir(parents=True)
+    window.load_folder(root)
+    home = str(window.store.root)
+    a = make_ref("project", home, "alpha")
+    d = date_ref("2026-08-01")
+    window._relate(a, d)                          # real path: stamps alpha's _fsid
+
+    os.rename(root / "alpha", root / "beta")      # rename the project folder
+    window.refresh()
+
+    b = make_ref("project", home, "beta")
+    assert window.store.last_renames == [("alpha", "beta")]
+    assert d in window._link_store.neighbors(b)   # the relation moved to "beta"
+    assert window._link_store.neighbors(a) == []  # and left the old identity
