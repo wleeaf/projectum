@@ -230,6 +230,10 @@ class ProjectStore:
         self.todos: list[Todo] = []  # folder-level to-do list (Todo tab)
         self.notes: str = ""  # legacy single scratchpad; migrated into note_docs
         self.note_docs: list[Note] = []  # folder-level notes shown in Notes tab
+        # Stable id for this root (see load()); ``_new`` flags a just-minted one
+        # the app should persist.
+        self.workspace_id: str = ""
+        self.workspace_id_new: bool = False
         # Renames/moves detected on the last load(), as (old_relpath, new_relpath).
         # A caller that owns the relation graph (the app) replays these onto it so
         # links follow a renamed folder. Reset and repopulated every load().
@@ -302,6 +306,17 @@ class ProjectStore:
         # must not abort the whole load.
         if not isinstance(data, dict):
             data = {}
+
+        # A stable id for this tracked root, persisted inside its own
+        # .projectum.json so it travels when the folder is renamed/moved. Lets
+        # the app recognise the same workspace at a new path and follow its
+        # relations. Minted in memory if absent; the app persists it (we don't
+        # write here — throwaway scan stores must stay read-only).
+        wid = data.get("workspace_id")
+        if isinstance(wid, str) and wid:
+            self.workspace_id, self.workspace_id_new = wid, False
+        else:
+            self.workspace_id, self.workspace_id_new = uuid.uuid4().hex, True
 
         persisted_active = data.get("projects") or {}
         persisted_orphans = data.get("_orphans") or {}
@@ -590,9 +605,18 @@ class ProjectStore:
             pass
         return d
 
+    def renew_workspace_id(self) -> str:
+        """Assign a fresh workspace id — used when a folder turns out to be a
+        copy of another (both claim the same id), so they don't fight over the
+        same relations. The caller persists it."""
+        self.workspace_id = uuid.uuid4().hex
+        self.workspace_id_new = True
+        return self.workspace_id
+
     def save(self) -> None:
         payload = {
             "version": 2,
+            "workspace_id": self.workspace_id,
             "note_docs": [
                 {"id": n.id, "title": n.title, "body": n.body,
                  "position": n.position}
@@ -651,6 +675,7 @@ class ProjectStore:
             encoding="utf-8",
         )
         os.replace(tmp, self.store_path)
+        self.workspace_id_new = False  # now persisted on disk
 
     def sorted_projects(self) -> list[Project]:
         """Tree order: each folder immediately precedes its expanded subtree,

@@ -1518,7 +1518,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Projectum", f"Could not open folder:\n{e}")
             return
-        # If a tracked folder was renamed/moved while closed, follow its links.
+        # If the whole root, or a project inside it, was renamed/moved while
+        # closed, follow the relations. Root first: it rewrites every ref's
+        # home, which the per-project pass then matches against.
+        self._apply_root_move()
         self._apply_detected_renames()
 
         if self._watcher.directories():
@@ -1620,6 +1623,37 @@ class MainWindow(QMainWindow):
             self._rebuild_index_async()
             if getattr(self, "current_tab", None) == "calendar":
                 self._refresh_calendar()
+
+    def _apply_root_move(self) -> None:
+        """Recognise the open folder by its stable workspace id. If that id was
+        last seen at a different path, the root was renamed/moved — follow all
+        its relations to the new path. If the old path still exists, this is a
+        copy rather than a move, so give it a fresh id instead (the two folders
+        then keep separate relations). Persists a newly-minted id."""
+        if not self.store:
+            return
+        wid = self.store.workspace_id
+        new_home = links_mod._resolved(str(self.store.root))
+        st = load_state()
+        registry = st.get("workspace_paths")
+        if not isinstance(registry, dict):
+            registry = {}
+        old_home = registry.get(wid)
+        persist = self.store.workspace_id_new
+        if isinstance(old_home, str) and old_home and old_home != new_home:
+            if Path(old_home).is_dir():
+                wid = self.store.renew_workspace_id()  # a copy — don't hijack the links
+                persist = True
+            else:
+                self._link_store.rekey_home(old_home, new_home)
+        registry[wid] = new_home
+        st["workspace_paths"] = registry
+        save_state(st)
+        if persist:
+            try:
+                self.store.save()  # stamp the id into the folder's .projectum.json
+            except OSError:
+                pass  # read-only folder: id re-mints next open, no crash on browse
 
     def _apply_detected_renames(self) -> int:
         """Replay any folder renames/moves the store detected on its last load

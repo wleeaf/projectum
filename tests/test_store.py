@@ -369,3 +369,13 @@ def test_recovers_move_into_later_expanded_folder(tmp_path):
     assert s.last_renames == [("alpha", "group/alpha")]
     assert s.projects["group/alpha"].tags == ["t"]
     assert "alpha" not in s.orphans
+
+
+def test_workspace_id_minted_persisted_and_stable(tmp_path):
+    s = _store(tmp_path, "alpha")
+    assert s.workspace_id and s.workspace_id_new        # minted on first load
+    s.save()
+    assert not s.workspace_id_new                        # cleared once persisted
+    wid = s.workspace_id
+    s2 = ProjectStore(tmp_path)                          # reload from disk
+    assert s2.workspace_id == wid and not s2.workspace_id_new

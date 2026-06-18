@@ -368,3 +368,21 @@ def test_rekey_drops_would_be_selfloop(tmp_path):
     s.add(a, a2)                              # already linked to its future name
     assert s.rekey(a, a2) == 1
     assert s.neighbors(a2) == [] and s.all_edges() == []   # self-loop dropped
+
+
+def test_rekey_home_follows_moved_root(tmp_path):
+    from projectum.links import _resolved
+    s = LinkStore(tmp_path / "links.json")
+    old, new = "/old/root", "/new/root"
+    p = make_ref("project", old, "alpha")
+    t = make_ref("todo", old, "u1")
+    d = date_ref("2026-09-01")                 # homeless — must stay untouched
+    s.add(p, d)
+    s.add(t, p)
+    assert s.rekey_home(old, new) == 2
+    refs = s.all_refs()
+    assert make_ref("project", new, "alpha") in refs
+    assert make_ref("todo", new, "u1") in refs
+    assert not any(r.home == _resolved(old) for r in refs)   # nothing left at old
+    assert d in s.neighbors(make_ref("project", new, "alpha"))
+    assert s.rekey_home(old, new) == 0                       # idempotent

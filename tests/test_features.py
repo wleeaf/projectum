@@ -42,7 +42,7 @@ def test_recent_menu_skips_missing_paths(window, tmp_path, qapp):
     gone = make_folder(tmp_path, "gone")
     window.load_folder(gone)
     window.load_folder(make_folder(tmp_path, "live"))
-    gone.rmdir()  # path no longer exists
+    shutil.rmtree(gone)  # path no longer exists (opening it stamped a .projectum.json)
     # _show_recent_menu filters dead paths at display time; just ensure it
     # builds without error and the dead path isn't offered.
     recents = [r for r in load_state().get("recent_folders", [])]
@@ -229,3 +229,48 @@ def test_relation_survives_folder_rename(window, qapp, tmp_path):
     assert window.store.last_renames == [("alpha", "beta")]
     assert d in window._link_store.neighbors(b)   # the relation moved to "beta"
     assert window._link_store.neighbors(a) == []  # and left the old identity
+
+
+def test_relation_survives_root_move(window, qapp, tmp_path):
+    """The whole opened folder is renamed/moved: every relation under it follows."""
+    import os
+    from projectum.links import make_ref, date_ref
+    root = tmp_path / "oldroot"
+    (root / "alpha").mkdir(parents=True)
+    window.load_folder(root)
+    a = make_ref("project", str(window.store.root), "alpha")
+    d = date_ref("2026-09-01")
+    window._relate(a, d)
+    window._flush_pending_writes()
+
+    new_root = tmp_path / "newroot"
+    os.rename(root, new_root)                  # move the entire root
+    window.load_folder(new_root)               # reopen at the new path
+
+    a2 = make_ref("project", str(window.store.root), "alpha")
+    assert d in window._link_store.neighbors(a2)    # link followed the root
+    assert window._link_store.neighbors(a) == []    # nothing left at the old path
+
+
+def test_root_copy_keeps_relations_separate(window, qapp, tmp_path):
+    """Copying a folder (its .projectum.json carries the same id) must NOT let
+    the copy hijack the original's relations — the copy gets a fresh id."""
+    import shutil
+    from projectum.links import make_ref, date_ref
+    root = tmp_path / "orig"
+    (root / "alpha").mkdir(parents=True)
+    window.load_folder(root)
+    orig_wid = window.store.workspace_id
+    a = make_ref("project", str(window.store.root), "alpha")
+    d = date_ref("2026-09-01")
+    window._relate(a, d)
+    window._flush_pending_writes()
+
+    copy_root = tmp_path / "copy"
+    shutil.copytree(root, copy_root)           # same workspace_id on disk
+    window.load_folder(copy_root)              # original still exists -> a copy
+
+    assert window.store.workspace_id != orig_wid     # copy re-minted its id
+    assert d in window._link_store.neighbors(a)      # original's relation intact
+    copy_ref = make_ref("project", str(window.store.root), "alpha")
+    assert window._link_store.neighbors(copy_ref) == []   # copy has none yet

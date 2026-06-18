@@ -284,6 +284,32 @@ class LinkStore:
         self.save()
         return len(touched)
 
+    def rekey_home(self, old_home: str, new_home: str) -> int:
+        """Move every ref under ``old_home`` to ``new_home`` — used when a whole
+        tracked root folder is renamed/moved, so all of its relations follow at
+        once. Homeless refs (dates, durations) are untouched. De-duplicates;
+        returns the number of edges changed. Saves once if anything changed."""
+        old_r, new_r = _resolved(old_home), _resolved(new_home)
+        if old_r == new_r:
+            return 0
+
+        def remap(ref: EntityRef) -> EntityRef:
+            return EntityRef(ref.kind, new_r, ref.key) if ref.home == old_r else ref
+
+        rebuilt: set[frozenset] = set()
+        changed = 0
+        for edge in self._edges:
+            a, b = tuple(edge)
+            na, nb = remap(a), remap(b)
+            if na != a or nb != b:
+                changed += 1
+            if na != nb:  # a home swap can't equate two distinct refs, but be safe
+                rebuilt.add(frozenset((na, nb)))
+        if changed:
+            self._edges = rebuilt
+            self.save()
+        return changed
+
     def all_edges(self) -> list[tuple[EntityRef, EntityRef]]:
         return [tuple(sorted(e, key=lambda r: r.sort_key())) for e in self._edges]
 
