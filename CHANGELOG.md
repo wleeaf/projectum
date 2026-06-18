@@ -3,6 +3,14 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] — 2026-06-18
+
+### Changed
+
+- **Self-update now respects package managers.** When Projectum is installed through a package manager (Flatpak, Snap, conda, or a distro package), it no longer attempts a `pip install --upgrade` of itself — which would fail under PEP 668 or shadow the managed copy. These installs are detected as a new `managed` channel and show an info-only banner pointing you to your package manager, while AppImage, source checkouts, and writable pip environments keep updating in place as before.
+
+[2.3.0]: https://github.com/wleeaf/projectum/releases/tag/v2.3.0
+
 ## [2.2.0] — 2026-06-18
 
 ### Changed
