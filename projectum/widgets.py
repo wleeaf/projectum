@@ -12,7 +12,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QPainter, QColor, QBrush, QPen, QFont, QFontMetrics, QPainterPath,
-    QMouseEvent, QSyntaxHighlighter, QTextCharFormat,
+    QMouseEvent, QSyntaxHighlighter, QTextCharFormat, QTransform,
 )
 from PySide6.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QLabel,
@@ -872,7 +872,8 @@ class ClickableLabel(QLabel):
 
 
 class BrandMark(QWidget):
-    """A 'W' painted in the current theme accent.
+    """An italic serif 'P' painted in the current theme accent — matching the
+    app icon and the website mark.
 
     Subscribe via :func:`update` after a theme change — the paintEvent reads
     ``theme.ACCENT`` fresh each time, so the next repaint picks up new colors.
@@ -889,28 +890,27 @@ class BrandMark(QWidget):
     def paintEvent(self, _event) -> None:
         with QPainter(self) as p:
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
-            color = QColor(theme.ACCENT)
-            # Thick rounded W constructed from four diagonal strokes.
-            pen = QPen(color, max(2.0, self._size * 0.14))
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            p.setPen(pen)
-            w = self.width()
-            h = self.height()
-            pad_x = w * 0.18
-            pad_y = h * 0.22
-            left = pad_x
-            right = w - pad_x
-            top = pad_y
-            bot = h - pad_y
-            third = (right - left) / 3.0
-            path = QPainterPath()
-            path.moveTo(left, top)
-            path.lineTo(left + third * 0.6, bot)
-            path.lineTo(left + third * 1.5, top + (bot - top) * 0.35)
-            path.lineTo(left + third * 2.4, bot)
-            path.lineTo(right, top)
-            p.drawPath(path)
+            # A heavy display serif when present, otherwise any serif italic.
+            font = QFont()
+            font.setFamilies(["Noto Serif Display", "Georgia", "DejaVu Serif"])
+            font.setStyleHint(QFont.StyleHint.Serif)
+            font.setItalic(True)
+            font.setWeight(QFont.Weight.Black)
+            font.setPointSizeF(self._size)
+            # Fit the glyph's bounding box to the widget (hue-preserving accent
+            # fill, centred), so it reads crisply at any size.
+            glyph = QPainterPath()
+            glyph.addText(0.0, 0.0, font, "P")
+            br = glyph.boundingRect()
+            if br.height() <= 0 or br.width() <= 0:
+                return
+            scale = min(self.width() / br.width(),
+                        self.height() / br.height()) * 0.88
+            t = QTransform()
+            t.translate(self.width() / 2 - br.center().x() * scale,
+                        self.height() / 2 - br.center().y() * scale)
+            t.scale(scale, scale)
+            p.fillPath(t.map(glyph), QColor(theme.ACCENT))
 
 
 class IconButton(QPushButton):

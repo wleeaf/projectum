@@ -3,6 +3,15 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] — 2026-06-18
+
+### Changed
+
+- **New app icon — an italic serif "P".** The old "W" mark is replaced everywhere by a high-contrast display-serif **P** in the signature purple-to-pink gradient, matching the mark on [projectum.wleeaf.dev](https://projectum.wleeaf.dev). The glyph is baked to a font-independent vector path, so it stays crisp at every size, and one generator (`packaging/make_icon.py`) renders all formats from a single source. The in-app title-bar mark follows the active theme accent.
+- **Windows and macOS binaries now carry the real icon.** The PyInstaller `.exe` and `.app` builds were shipping with the default placeholder icon; they now embed the Projectum mark (`.ico` / `.icns`).
+
+[2.2.0]: https://github.com/wleeaf/projectum/releases/tag/v2.2.0
+
 ## [2.1.0] — 2026-06-10
 
 ### Added

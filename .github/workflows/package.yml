@@ -33,7 +33,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
       - name: Build Projectum.exe
-        run: pyinstaller --noconfirm --onefile --windowed --name Projectum main.py
+        run: pyinstaller --noconfirm --onefile --windowed --name Projectum --icon packaging/windows/projectum.ico main.py
       - name: Sanity-check the binary launches (offscreen)
         env:
           QT_QPA_PLATFORM: offscreen
@@ -75,7 +75,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
       - name: Build Projectum.app
-        run: pyinstaller --noconfirm --windowed --name Projectum main.py
+        run: pyinstaller --noconfirm --windowed --name Projectum --icon packaging/macos/projectum.icns main.py
       - name: Sanity-check the app launches (offscreen)
         env:
           QT_QPA_PLATFORM: offscreen

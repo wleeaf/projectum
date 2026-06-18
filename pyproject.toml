@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "projectum"
-version = "2.1.0"
+version = "2.2.0"
 description = "Keyboard-first desktop tracker for the projects, playlists, and notes that live in a folder on your disk."
 readme = "README.md"
 license = { text = "MIT" }
