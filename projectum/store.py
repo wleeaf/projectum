@@ -218,7 +218,7 @@ def _note_title_from_body(body: str) -> str:
 class ProjectStore:
     STORE_FILENAME = ".projectum.json"
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, prior_fsids: dict | None = None):
         self.root = Path(root)
         self.projects: dict[str, Project] = {}
         self.orphans: dict[str, dict] = {}
@@ -238,6 +238,15 @@ class ProjectStore:
         # A caller that owns the relation graph (the app) replays these onto it so
         # links follow a renamed folder. Reset and repopulated every load().
         self.last_renames: list[tuple[str, str]] = []
+        # Filesystem identity per project name — (st_dev, st_ino, st_mtime_ns).
+        # Kept *out* of the committed .projectum.json (it's machine-local and
+        # churny): the app seeds ``prior_fsids`` from a machine-local sidecar and
+        # persists ``fsids`` back. ``load()`` carries it forward across reloads.
+        self.prior_fsids: dict[str, tuple] = {
+            k: tuple(v) for k, v in (prior_fsids or {}).items()
+            if isinstance(v, (list, tuple)) and len(v) == 3
+        }
+        self.fsids: dict[str, tuple] = {}
         self.load()
 
     @property
@@ -349,21 +358,13 @@ class ProjectStore:
         new_to_old: dict[str, str] = {}
         consumed_old: set[str] = set()
 
-        def _fsid(d) -> tuple[int, int, int] | None:
-            f = d.get("_fsid") if isinstance(d, dict) else None
-            if (isinstance(f, list) and len(f) == 3
-                    and all(isinstance(x, int) for x in f)):
-                return (f[0], f[1], f[2])  # (st_dev, st_ino, st_mtime_ns)
-            return None
-
-        # Consider both active and orphaned prior entries: a folder moved into a
-        # not-yet-expanded subfolder first lands in orphans, then is recognised
-        # when the subfolder is expanded. The (dev, ino, mtime) triple is strict
-        # enough that stale orphan ids can't collide by accident.
-        vanished_by_fsid: dict[tuple[int, int, int], list[str]] = {}
-        for old_name, d in all_persisted.items():
-            fid = _fsid(d)
-            if fid is not None and old_name not in scanned:
+        # prior_fsids already spans active *and* recently-orphaned projects (see
+        # how ``fsids`` is rebuilt at the end of load()), so a folder moved into a
+        # not-yet-expanded subfolder is still recognised once it's expanded. The
+        # (dev, ino, mtime) triple is strict enough that stale ids can't collide.
+        vanished_by_fsid: dict[tuple, list[str]] = {}
+        for old_name, fid in self.prior_fsids.items():
+            if old_name not in scanned:
                 vanished_by_fsid.setdefault(fid, []).append(old_name)
         if vanished_by_fsid:
             for name in sorted(scanned):
@@ -580,8 +581,28 @@ class ProjectStore:
             ))
         self.note_docs = new_notes
 
+        # Refresh the filesystem-identity map: fresh stats for live projects,
+        # last-known ids carried for still-orphaned ones (so a folder that
+        # vanished can still be matched when it reappears renamed/moved). This
+        # becomes the prior for the next load (and what the app persists).
+        fsids: dict[str, tuple] = {}
+        for name, p in self.projects.items():
+            try:
+                st = os.stat(p.path)
+                fsids[name] = (st.st_dev, st.st_ino, st.st_mtime_ns)
+            except OSError:
+                pass
+        for name in self.orphans:
+            if name in self.prior_fsids:
+                fsids[name] = self.prior_fsids[name]
+        self.fsids = fsids
+        self.prior_fsids = fsids
+
     def _project_payload(self, p: Project) -> dict:
-        d = {
+        # Only portable, user-meaningful data lives in the committed file. The
+        # filesystem-identity map used for rename detection is machine-local and
+        # kept in a sidecar (see self.fsids / prior_fsids), not here.
+        return {
             "completed": p.completed,
             "notes": p.notes,
             "tags": p.tags,
@@ -593,17 +614,6 @@ class ProjectStore:
             "start": p.start,
             "end": p.end,
         }
-        # Filesystem identity, so a rename/move on the same filesystem is
-        # recognised on the next scan (see load()'s rename detection). mtime is
-        # carried alongside the inode because the OS recycles inode numbers
-        # immediately on delete: a fresh folder can land on a deleted project's
-        # inode, but not its (preserved-across-mv) mtime.
-        try:
-            st = os.stat(p.path)
-            d["_fsid"] = [st.st_dev, st.st_ino, st.st_mtime_ns]
-        except OSError:
-            pass
-        return d
 
     def renew_workspace_id(self) -> str:
         """Assign a fresh workspace id — used when a folder turns out to be a

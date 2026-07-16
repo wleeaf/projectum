@@ -120,6 +120,40 @@ def save_state(data: dict) -> None:
         pass
 
 
+# ── machine-local filesystem-identity sidecar ───────────────────────────────
+# Per-folder project inode ids used only for rename detection. Kept out of the
+# committed .projectum.json (it's machine-specific and mtime-churny); keyed by
+# the folder's resolved path.
+
+def _fsids_path() -> Path:
+    return state_dir() / "fsids.json"
+
+
+def load_fsids(resolved_root: str) -> dict:
+    try:
+        data = json.loads(_fsids_path().read_text(encoding="utf-8"))
+        entry = data.get(resolved_root) if isinstance(data, dict) else None
+        return entry if isinstance(entry, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_fsids(resolved_root: str, fsids: dict) -> None:
+    p = _fsids_path()
+    try:
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        data[resolved_root] = {name: list(fid) for name, fid in fsids.items()}
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1513,8 +1547,9 @@ class MainWindow(QMainWindow):
         # "Fetching…" against the new folder).
         self._refreshing_playlist_ids.clear()
         self._reset_playlist_add_ui()
+        resolved_root = links_mod._resolved(str(path))
         try:
-            self.store = ProjectStore(path)
+            self.store = ProjectStore(path, prior_fsids=load_fsids(resolved_root))
         except Exception as e:
             QMessageBox.critical(self, "Projectum", f"Could not open folder:\n{e}")
             return
@@ -1523,6 +1558,7 @@ class MainWindow(QMainWindow):
         # home, which the per-project pass then matches against.
         self._apply_root_move()
         self._apply_detected_renames()
+        save_fsids(resolved_root, self.store.fsids)
 
         if self._watcher.directories():
             self._watcher.removePaths(self._watcher.directories())
@@ -1611,6 +1647,7 @@ class MainWindow(QMainWindow):
         self._flush_pending_writes()
         before = self._project_snapshot()
         self.store.load()
+        save_fsids(links_mod._resolved(str(self.store.root)), self.store.fsids)
         renamed = self._apply_detected_renames()
         after = self._project_snapshot()
         if before == after and not renamed:
@@ -1725,6 +1762,7 @@ class MainWindow(QMainWindow):
             return
         self.store.set_expansion(relpath, depth)        # save + rescan from disk
         self._apply_detected_renames()                  # a moved-in folder keeps its links
+        save_fsids(links_mod._resolved(str(self.store.root)), self.store.fsids)
         self.current_project = self.store.projects.get(relpath)
         self._full_rebuild_list(preserve_name=relpath)
         self._update_stats()
@@ -3593,11 +3631,6 @@ class MainWindow(QMainWindow):
 
     def _relate(self, a, b) -> None:
         if self._link_store.add(a, b):
-            # Persist the project store too: a project endpoint records its
-            # filesystem id (_fsid) now, so a later rename/move keeps this link
-            # even if the project had no other metadata to trigger a save.
-            if self.store:
-                self.store.save()
             self._on_links_changed()
 
     def _open_relate_date_picker(self, subject_ref) -> None:

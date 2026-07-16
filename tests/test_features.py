@@ -220,7 +220,7 @@ def test_relation_survives_folder_rename(window, qapp, tmp_path):
     home = str(window.store.root)
     a = make_ref("project", home, "alpha")
     d = date_ref("2026-08-01")
-    window._relate(a, d)                          # real path: stamps alpha's _fsid
+    window._relate(a, d)                          # link a project that has no other metadata
 
     os.rename(root / "alpha", root / "beta")      # rename the project folder
     window.refresh()
