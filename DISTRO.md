@@ -9,7 +9,7 @@ updated **2026-06-18**, against release **v2.4.0**.
 ## Pick up here next visit
 
 - [x] **AUR** — **LIVE** at [aur.archlinux.org/packages/projectum](https://aur.archlinux.org/packages/projectum), `yay -S projectum` (published 2.4.0-1 by `wleeaf`; build-verified, namcap clean). Each new release: bump + re-push (steps below).
-- [ ] **Flathub** — **build-verified on the 6.10 runtime** (builds + launches in-sandbox) and **manifest passes `flatpak-builder-lint`**. Just needs the PR to `flathub/flathub`. The linter caught that KDE 6.8 was EOL (bumped to 6.10) and flags `--filesystem=home` — which is intentional and needs a one-line reviewer exception (justification is in the manifest + the PR body). Run the `builddir`/`appstream` lints at PR time too.
+- [x] **Flathub** — **not pursuing (declined).** The manifest is build-verified (6.10, builds + launches) and lint-clean, and stays in `packaging/flatpak/` as reference. But Flathub's [requirements](https://docs.flathub.org/docs/for-app-authors/requirements) forbid both AI-opened PRs *and* apps with "AI-generated or AI-assisted code" ("rejected without any further review"), which Projectum can't honestly clear. Linux is already covered by AppImage + AUR + PyPI, so nothing's lost.
 - [ ] **Automate per-release bumps** — optional: wire Homebrew/AUR/Flathub checksum+version bumps into the release workflow so they don't drift (offered, not yet done).
 - [ ] **Signing** (unblocks store warnings + winget/Microsoft Store/Mac App Store) — Apple Developer membership ($99/yr) + a Windows cert (Azure Trusted Signing is ~free for individuals).
 - [ ] **Future channels not started** — winget, conda-forge, Snap, Fedora COPR / openSUSE OBS, nixpkgs.
@@ -43,7 +43,7 @@ checkouts, and writable pip envs still update in place.
 | **Homebrew** (macOS) | `brew install --cask wleeaf/tap/projectum` | [`wleeaf/homebrew-tap`](https://github.com/wleeaf/homebrew-tap) → `Casks/projectum.rb` | Live |
 | **Scoop** (Windows) | `scoop bucket add wleeaf …; scoop install projectum` | [`wleeaf/scoop-bucket`](https://github.com/wleeaf/scoop-bucket) → `bucket/projectum.json` | Live |
 | **AUR** (Arch) | `yay -S projectum` | `packaging/aur/` + [aur.archlinux.org](https://aur.archlinux.org/packages/projectum) | **Live** |
-| **Flathub** (Linux) | `flatpak install …Projectum` | `packaging/flatpak/` | Build-verified — needs PR |
+| **Flathub** (Linux) | (not distributed) | `packaging/flatpak/` (reference only) | Declined — AI policy |
 
 ## Live channels
 
@@ -77,13 +77,13 @@ Before pushing a new version, bump `pkgver` + the tarball `sha256` in
 `packaging/aur/PKGBUILD` and regenerate `.SRCINFO` (`makepkg --printsrcinfo`).
 The AUR default branch is `master`.
 
-### Flathub — needs the PR
-App ID `io.github.wleeaf.Projectum`. Manifest is fully pinned (yt-dlp wheel +
-v2.4.0 source tarball, both sha256), on the **6.10** runtime (6.8 was EOL),
-**build-verified** (`flatpak-builder` builds it and it launches in-sandbox), and
-the **manifest passes `flatpak-builder-lint`** (only `--filesystem=home` is
-flagged — see below). Metadata also passes `appstreamcli validate` +
-`desktop-file-validate`. Reproduce locally (runtimes already installed here):
+### Flathub — declined (AI policy)
+**Not being distributed.** Flathub's requirements forbid AI-assisted apps and
+agent-opened PRs, so we're not submitting. The `packaging/flatpak/` files are
+kept only as a **working reference** — the manifest is build-verified (6.10,
+builds + launches in-sandbox), lint-clean bar the intentional `--filesystem=home`,
+and its metadata passes `appstreamcli validate` + `desktop-file-validate`. If
+Flathub ever relaxes the policy, it's ready to submit; reproduce the build with:
 ```bash
 flatpak install flathub org.kde.Sdk//6.10 org.kde.Platform//6.10 io.qt.PySide.BaseApp//6.10
 flatpak-builder --user --install --force-clean build-dir \

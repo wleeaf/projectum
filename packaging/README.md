@@ -11,7 +11,7 @@ Scaffolding for shipping Projectum on multiple platforms. Each channel is a
 | **Homebrew** (macOS) | [`wleeaf/homebrew-tap`](https://github.com/wleeaf/homebrew-tap) | — | **Live** — `brew install --cask wleeaf/tap/projectum` |
 | **Scoop** (Windows) | [`wleeaf/scoop-bucket`](https://github.com/wleeaf/scoop-bucket) | — | **Live** — `scoop bucket add wleeaf …; scoop install projectum` |
 | **AUR** | [aur.archlinux.org/packages/projectum](https://aur.archlinux.org/packages/projectum) | — | **Live** — `yay -S projectum` |
-| **Flathub** | `flatpak/` | Medium | **Ready** — build-verified (flatpak-builder + launch); needs a review PR |
+| **Flathub** | `flatpak/` | — | Declined — AI policy (manifest kept as reference) |
 
 Verified locally: `projectum` is free on PyPI, and `python -m build` + `twine check` pass.
 
