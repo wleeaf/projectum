@@ -5,7 +5,7 @@
 # --no-deps install of the base wheel is correct; PySide6 comes from the
 # io.qt.PySide.BaseApp. Remaining steps for a Flathub submission:
 #   1. Build & test locally:
-#        flatpak install flathub org.kde.Sdk//6.8 org.kde.Platform//6.8 io.qt.PySide.BaseApp//6.8
+#        flatpak install flathub org.kde.Sdk//6.10 org.kde.Platform//6.10 io.qt.PySide.BaseApp//6.10
 #        flatpak-builder --user --install --force-clean build-dir io.github.wleeaf.Projectum.yml
 #        flatpak run io.github.wleeaf.Projectum
 #   2. Validate metadata: appstreamcli validate ...metainfo.xml ; desktop-file-validate ...desktop
@@ -13,10 +13,10 @@
 #      Bump both pinned versions (this file + the metainfo release list) each release.
 id: io.github.wleeaf.Projectum
 runtime: org.kde.Platform
-runtime-version: "6.8"
+runtime-version: "6.10"
 sdk: org.kde.Sdk
 base: io.qt.PySide.BaseApp
-base-version: "6.8"
+base-version: "6.10"
 command: projectum
 
 finish-args:
@@ -25,7 +25,12 @@ finish-args:
   - --socket=fallback-x11
   - --device=dri
   - --share=network          # yt-dlp fetches playlist metadata
-  - --filesystem=home        # open and track project folders
+  # Broad home access is core to the app: it opens arbitrary project folders,
+  # writes a .projectum.json inside each, and the calendar scans several tracked
+  # folders at once — none of which the file-chooser portal can do persistently.
+  # Flagged by flatpak-builder-lint (finish-args-home-filesystem-access); needs a
+  # reviewer exception at submission.
+  - --filesystem=home
 
 cleanup:
   - /include

@@ -64,7 +64,7 @@ toolchain, which CI/this repo doesn't have):
 
 1. Build/test on a machine with `flatpak-builder`:
    ```bash
-   flatpak install flathub org.kde.Sdk//6.8 org.kde.Platform//6.8 io.qt.PySide.BaseApp//6.8
+   flatpak install flathub org.kde.Sdk//6.10 org.kde.Platform//6.10 io.qt.PySide.BaseApp//6.10
    flatpak-builder --user --install --force-clean build-dir flatpak/io.github.wleeaf.Projectum.yml
    flatpak run io.github.wleeaf.Projectum
    ```
