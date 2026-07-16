@@ -69,6 +69,7 @@ Or a package manager:
 ```bash
 brew install --cask wleeaf/tap/projectum                                   # macOS
 scoop bucket add wleeaf https://github.com/wleeaf/scoop-bucket && scoop install projectum   # Windows
+yay -S projectum                                                           # Arch (AUR)
 ```
 
 Or grab a standalone build from the [latest release](https://github.com/wleeaf/projectum/releases/latest):

@@ -8,7 +8,7 @@ updated **2026-06-18**, against release **v2.4.0**.
 
 ## Pick up here next visit
 
-- [ ] **AUR** — **build-verified** (makepkg + namcap clean in an Arch container; fixed the `pyside6` dep name and added `hicolor-icon-theme`). Just needs the push once you register (needs your AUR account; steps below).
+- [x] **AUR** — **LIVE** at [aur.archlinux.org/packages/projectum](https://aur.archlinux.org/packages/projectum), `yay -S projectum` (published 2.4.0-1 by `wleeaf`; build-verified, namcap clean). Each new release: bump + re-push (steps below).
 - [ ] **Flathub** — **build-verified** (`flatpak-builder` builds it and the app launches in-sandbox). Just needs the PR to `flathub/flathub` (steps below).
 - [ ] **Automate per-release bumps** — optional: wire Homebrew/AUR/Flathub checksum+version bumps into the release workflow so they don't drift (offered, not yet done).
 - [ ] **Signing** (unblocks store warnings + winget/Microsoft Store/Mac App Store) — Apple Developer membership ($99/yr) + a Windows cert (Azure Trusted Signing is ~free for individuals).
@@ -42,7 +42,7 @@ checkouts, and writable pip envs still update in place.
 | **Windows / macOS** | download `.exe` / `.dmg` | `package.yml` | Live, per release |
 | **Homebrew** (macOS) | `brew install --cask wleeaf/tap/projectum` | [`wleeaf/homebrew-tap`](https://github.com/wleeaf/homebrew-tap) → `Casks/projectum.rb` | Live |
 | **Scoop** (Windows) | `scoop bucket add wleeaf …; scoop install projectum` | [`wleeaf/scoop-bucket`](https://github.com/wleeaf/scoop-bucket) → `bucket/projectum.json` | Live |
-| **AUR** (Arch) | `yay -S projectum` | `packaging/aur/` (PKGBUILD + .SRCINFO) | Build-verified — needs push |
+| **AUR** (Arch) | `yay -S projectum` | `packaging/aur/` + [aur.archlinux.org](https://aur.archlinux.org/packages/projectum) | **Live** |
 | **Flathub** (Linux) | `flatpak install …Projectum` | `packaging/flatpak/` | Build-verified — needs PR |
 
 ## Live channels
@@ -64,15 +64,18 @@ versions automatically — **no manual bump needed**.
 
 ## Ready, needs one step
 
-### AUR — needs your account
-`packaging/aur/PKGBUILD` + `.SRCINFO` are pinned to 2.4.0 with the real tarball
-sha256. One-time, with an [AUR account](https://aur.archlinux.org) + SSH key:
+### AUR — live (maintainer `wleeaf`)
+Published at [aur.archlinux.org/packages/projectum](https://aur.archlinux.org/packages/projectum).
+`packaging/aur/` is the source of truth. Each new release, re-push from a clone of
+the AUR repo (SSH key `~/.ssh/id_ed25519` is already registered):
 ```bash
 git clone ssh://aur@aur.archlinux.org/projectum.git aur-projectum
 cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO aur-projectum/
-cd aur-projectum && git add -A && git commit -m "projectum 2.4.0" && git push
+cd aur-projectum && git add -A && git commit -m "projectum <ver>" && git push
 ```
-Test on Arch first: `makepkg -si` in a clean checkout.
+Before pushing a new version, bump `pkgver` + the tarball `sha256` in
+`packaging/aur/PKGBUILD` and regenerate `.SRCINFO` (`makepkg --printsrcinfo`).
+The AUR default branch is `master`.
 
 ### Flathub — needs the PR
 App ID `io.github.wleeaf.Projectum`. Manifest is fully pinned (yt-dlp wheel +

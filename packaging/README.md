@@ -10,8 +10,8 @@ Scaffolding for shipping Projectum on multiple platforms. Each channel is a
 | **PyPI** | `.github/workflows/publish-pypi.yml` | — | **Live** — `pip install projectum` |
 | **Homebrew** (macOS) | [`wleeaf/homebrew-tap`](https://github.com/wleeaf/homebrew-tap) | — | **Live** — `brew install --cask wleeaf/tap/projectum` |
 | **Scoop** (Windows) | [`wleeaf/scoop-bucket`](https://github.com/wleeaf/scoop-bucket) | — | **Live** — `scoop bucket add wleeaf …; scoop install projectum` |
-| **AUR** | `aur/PKGBUILD` + `aur/.SRCINFO` | Low | **Ready** — pinned to the release; needs an AUR push (see below) |
-| **Flathub** | `flatpak/` | Medium | **Ready** — pinned + validated; needs a local build-test + review PR |
+| **AUR** | [aur.archlinux.org/packages/projectum](https://aur.archlinux.org/packages/projectum) | — | **Live** — `yay -S projectum` |
+| **Flathub** | `flatpak/` | Medium | **Ready** — build-verified (flatpak-builder + launch); needs a review PR |
 
 Verified locally: `projectum` is free on PyPI, and `python -m build` + `twine check` pass.
 
