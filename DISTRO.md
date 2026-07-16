@@ -1,7 +1,7 @@
 # Distribution status
 
 State of every channel Projectum ships through, and what's left to do. Last
-updated **2026-06-18**, against release **v2.3.0**.
+updated **2026-06-18**, against release **v2.4.0**.
 
 > The in-repo `packaging/` files are the source of truth. The Homebrew/Scoop
 > tap repos are live deployment copies. See also `packaging/README.md`.
@@ -14,22 +14,22 @@ updated **2026-06-18**, against release **v2.3.0**.
 - [ ] **Signing** (unblocks store warnings + winget/Microsoft Store/Mac App Store) — Apple Developer membership ($99/yr) + a Windows cert (Azure Trusted Signing is ~free for individuals).
 - [ ] **Future channels not started** — winget, conda-forge, Snap, Fedora COPR / openSUSE OBS, nixpkgs.
 
-## Foundation: v2.3.0 + the updater guard
+## Foundation: v2.4.0 + the updater guard
 
-The channels all leave updates to the package manager. v2.3.0 added a `managed`
+The channels all leave updates to the package manager. v2.4.0 added a `managed`
 install channel to the auto-updater (`projectum/update.py`): Flatpak
 (`FLATPAK_ID`/`/.flatpak-info`), Snap (`SNAP`), conda (a `conda-meta` record),
 and PEP 668 externally-managed distro/Homebrew Python are detected and **never**
 self-update via pip — they get an info-only banner instead. AppImage, source
 checkouts, and writable pip envs still update in place.
 
-### v2.3.0 artifact checksums (sha256)
+### v2.4.0 artifact checksums (sha256)
 
 | Artifact | URL | sha256 |
 |---|---|---|
-| Source tarball | `…/archive/refs/tags/v2.3.0.tar.gz` | `96bbbbc57d9749fca01650de3c85c2c30aba125156a584f66a8ed443e3467d6c` |
-| Windows `.exe` | `…/releases/download/v2.3.0/Projectum-windows-x64.exe` | `e33c2793c0bf39656eb477907f30b0640af710667d7de7a28bcb56f54b2fb758` |
-| macOS `.dmg` | `…/releases/download/v2.3.0/Projectum-macos.dmg` | `ce7cf93054224bfe8ec91a760229b809f1580816f656bd25fed8c2b0f82459d0` |
+| Source tarball | `…/archive/refs/tags/v2.4.0.tar.gz` | `1554e5b4369cca7c10e47f9b7b7cd662647f1dda06d7fbd2c76f9f3c5d411788` |
+| Windows `.exe` | `…/releases/download/v2.4.0/Projectum-windows-x64.exe` | `2560622ab76b7698081a7ebd85ee2f2eca566f9335ef2e56a66d474c50878d9d` |
+| macOS `.dmg` | `…/releases/download/v2.4.0/Projectum-macos.dmg` | `d536a92b5517dde122dd94e7d3969f259aae6d95b2c1c710a387f7c1b0e6df33` |
 
 (Base URL: `https://github.com/wleeaf/projectum`.)
 
@@ -65,18 +65,18 @@ versions automatically — **no manual bump needed**.
 ## Ready, needs one step
 
 ### AUR — needs your account
-`packaging/aur/PKGBUILD` + `.SRCINFO` are pinned to 2.3.0 with the real tarball
+`packaging/aur/PKGBUILD` + `.SRCINFO` are pinned to 2.4.0 with the real tarball
 sha256. One-time, with an [AUR account](https://aur.archlinux.org) + SSH key:
 ```bash
 git clone ssh://aur@aur.archlinux.org/projectum.git aur-projectum
 cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO aur-projectum/
-cd aur-projectum && git add -A && git commit -m "projectum 2.3.0" && git push
+cd aur-projectum && git add -A && git commit -m "projectum 2.4.0" && git push
 ```
 Test on Arch first: `makepkg -si` in a clean checkout.
 
 ### Flathub — needs the Flatpak toolchain
 App ID `io.github.wleeaf.Projectum`. Manifest is fully pinned (yt-dlp wheel +
-v2.3.0 source tarball, both sha256). yt-dlp's deps are all optional extras, so
+v2.4.0 source tarball, both sha256). yt-dlp's deps are all optional extras, so
 `--no-deps` is correct. Metadata passes `appstreamcli validate` and
 `desktop-file-validate` (verified locally). Remaining:
 ```bash

@@ -70,6 +70,7 @@
   </keywords>
 
   <releases>
+    <release version="2.4.0" date="2026-06-18"/>
     <release version="2.3.0" date="2026-06-18"/>
     <release version="2.2.0" date="2026-06-18"/>
     <release version="2.1.0" date="2026-06-10"/>

@@ -1,6 +1,6 @@
 # Maintainer: wleeaf <https://github.com/wleeaf>
 pkgname=projectum
-pkgver=2.3.0
+pkgver=2.4.0
 pkgrel=1
 pkgdesc="Keyboard-first desktop tracker for the projects, playlists, tasks and notes in a folder"
 arch=('any')
@@ -9,7 +9,7 @@ license=('MIT')
 depends=('python' 'python-pyside6' 'yt-dlp')
 makedepends=('python-build' 'python-installer' 'python-wheel' 'python-setuptools')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('96bbbbc57d9749fca01650de3c85c2c30aba125156a584f66a8ed443e3467d6c')
+sha256sums=('1554e5b4369cca7c10e47f9b7b7cd662647f1dda06d7fbd2c76f9f3c5d411788')
 
 build() {
     cd "$pkgname-$pkgver"

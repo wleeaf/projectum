@@ -1,6 +1,6 @@
 pkgbase = projectum
 	pkgdesc = Keyboard-first desktop tracker for the projects, playlists, tasks and notes in a folder
-	pkgver = 2.3.0
+	pkgver = 2.4.0
 	pkgrel = 1
 	url = https://github.com/wleeaf/projectum
 	arch = any
@@ -12,7 +12,7 @@ pkgbase = projectum
 	depends = python
 	depends = python-pyside6
 	depends = yt-dlp
-	source = projectum-2.3.0.tar.gz::https://github.com/wleeaf/projectum/archive/refs/tags/v2.3.0.tar.gz
-	sha256sums = 96bbbbc57d9749fca01650de3c85c2c30aba125156a584f66a8ed443e3467d6c
+	source = projectum-2.4.0.tar.gz::https://github.com/wleeaf/projectum/archive/refs/tags/v2.4.0.tar.gz
+	sha256sums = 1554e5b4369cca7c10e47f9b7b7cd662647f1dda06d7fbd2c76f9f3c5d411788
 
 pkgname = projectum
