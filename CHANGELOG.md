@@ -3,6 +3,20 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] — 2026-06-18
+
+### Added
+
+- **Relations survive folder renames and moves.** Previously, renaming or moving a tracked folder orphaned every relation you'd drawn to it, because a project was identified by its path. Now Projectum recognises a folder by its filesystem identity and follows its relations when it moves:
+  - **Rename a project folder, move it into a subfolder (even one you expand later), or both** — its links, and its own metadata, come along. Detection uses the directory's inode plus mtime, so it isn't fooled by the OS recycling a deleted folder's inode.
+  - **Rename or move the whole opened folder** — every relation under it follows at once. Each tracked root now carries a stable `workspace_id` inside its `.projectum.json`, so the same workspace is recognised at its new path. Copying a folder (rather than moving it) is detected and given a fresh id, so the copy and the original keep separate relations.
+
+### Changed
+
+- Opening a folder now writes its `.projectum.json` once to stamp the workspace id (fail-soft on read-only folders). The machine-local inode data used for rename detection is kept in a separate sidecar under `~/.config/projectum/`, so the committed `.projectum.json` stays portable and clean.
+
+[2.4.0]: https://github.com/wleeaf/projectum/releases/tag/v2.4.0
+
 ## [2.3.0] — 2026-06-18
 
 ### Changed
