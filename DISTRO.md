@@ -14,9 +14,9 @@ updated **2026-06-18**, against release **v2.4.0**.
 - [ ] **Signing** (unblocks store warnings + winget/Microsoft Store/Mac App Store) — Apple Developer membership ($99/yr) + a Windows cert (Azure Trusted Signing is ~free for individuals).
 - [ ] **Future channels not started** — winget, conda-forge, Snap, Fedora COPR / openSUSE OBS, nixpkgs.
 
-## Foundation: v2.4.0 + the updater guard
+## Foundation: the updater guard (v2.3.0)
 
-The channels all leave updates to the package manager. v2.4.0 added a `managed`
+The channels all leave updates to the package manager. v2.3.0 added a `managed`
 install channel to the auto-updater (`projectum/update.py`): Flatpak
 (`FLATPAK_ID`/`/.flatpak-info`), Snap (`SNAP`), conda (a `conda-meta` record),
 and PEP 668 externally-managed distro/Homebrew Python are detected and **never**
