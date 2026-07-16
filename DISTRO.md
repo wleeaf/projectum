@@ -8,8 +8,8 @@ updated **2026-06-18**, against release **v2.4.0**.
 
 ## Pick up here next visit
 
-- [ ] **AUR** — push the prepared `packaging/aur/` files (needs your AUR account; steps below).
-- [ ] **Flathub** — local `flatpak-builder` build-test, then a PR to `flathub/flathub` (needs the Flatpak toolchain; steps below).
+- [ ] **AUR** — **build-verified** (makepkg + namcap clean in an Arch container; fixed the `pyside6` dep name and added `hicolor-icon-theme`). Just needs the push once you register (needs your AUR account; steps below).
+- [ ] **Flathub** — **build-verified** (`flatpak-builder` builds it and the app launches in-sandbox). Just needs the PR to `flathub/flathub` (steps below).
 - [ ] **Automate per-release bumps** — optional: wire Homebrew/AUR/Flathub checksum+version bumps into the release workflow so they don't drift (offered, not yet done).
 - [ ] **Signing** (unblocks store warnings + winget/Microsoft Store/Mac App Store) — Apple Developer membership ($99/yr) + a Windows cert (Azure Trusted Signing is ~free for individuals).
 - [ ] **Future channels not started** — winget, conda-forge, Snap, Fedora COPR / openSUSE OBS, nixpkgs.
@@ -42,8 +42,8 @@ checkouts, and writable pip envs still update in place.
 | **Windows / macOS** | download `.exe` / `.dmg` | `package.yml` | Live, per release |
 | **Homebrew** (macOS) | `brew install --cask wleeaf/tap/projectum` | [`wleeaf/homebrew-tap`](https://github.com/wleeaf/homebrew-tap) → `Casks/projectum.rb` | Live |
 | **Scoop** (Windows) | `scoop bucket add wleeaf …; scoop install projectum` | [`wleeaf/scoop-bucket`](https://github.com/wleeaf/scoop-bucket) → `bucket/projectum.json` | Live |
-| **AUR** (Arch) | `yay -S projectum` | `packaging/aur/` (PKGBUILD + .SRCINFO) | Ready — needs push |
-| **Flathub** (Linux) | `flatpak install …Projectum` | `packaging/flatpak/` | Ready — needs build-test + PR |
+| **AUR** (Arch) | `yay -S projectum` | `packaging/aur/` (PKGBUILD + .SRCINFO) | Build-verified — needs push |
+| **Flathub** (Linux) | `flatpak install …Projectum` | `packaging/flatpak/` | Build-verified — needs PR |
 
 ## Live channels
 
@@ -74,11 +74,13 @@ cd aur-projectum && git add -A && git commit -m "projectum 2.4.0" && git push
 ```
 Test on Arch first: `makepkg -si` in a clean checkout.
 
-### Flathub — needs the Flatpak toolchain
+### Flathub — needs the PR
 App ID `io.github.wleeaf.Projectum`. Manifest is fully pinned (yt-dlp wheel +
-v2.4.0 source tarball, both sha256). yt-dlp's deps are all optional extras, so
-`--no-deps` is correct. Metadata passes `appstreamcli validate` and
-`desktop-file-validate` (verified locally). Remaining:
+v2.4.0 source tarball, both sha256) and **build-verified**: `flatpak-builder`
+builds it clean and the app launches in-sandbox; metadata passes `appstreamcli
+validate` and `desktop-file-validate`. To reproduce the build locally (the
+`org.kde.*//6.8` + `io.qt.PySide.BaseApp//6.8` runtimes are already installed
+on this machine):
 ```bash
 flatpak install flathub org.kde.Sdk//6.8 org.kde.Platform//6.8 io.qt.PySide.BaseApp//6.8
 flatpak-builder --user --install --force-clean build-dir \
