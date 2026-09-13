@@ -36,3 +36,45 @@ wheels/
 
 # Scratch
 /tmp_screens/
+
+# Local environments, generated output and private runtime state
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.next/
+.dart_tool/
+.flutter-plugins-dependencies
+.gradle/
+.godot/
+.pytest_cache/
+.ruff_cache/
+.flatpak-builder/
+build/
+dist/
+target/
+coverage/
+*.tsbuildinfo
+.playwright-mcp/
+.claude/settings.local.json
+.claude/worktrees/
+.codex/
+.cache
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.log
+*.pem
+*.key
+*.jks
+*.keystore
+key.properties
+auth.json
+cookies.txt
+*cookies*.txt
+service-account*.json
+*-firebase-adminsdk-*.json
+.DS_Store
