@@ -114,13 +114,19 @@ def parse_delta(text: str) -> int | None:
         return None
     total = 0
     found = False
-    for num, unit in _DELTA_TOKEN.findall(text.strip().casefold()):
+    text = text.strip().casefold()
+    pos = 0
+    for match in _DELTA_TOKEN.finditer(text):
+        if text[pos:match.start()].strip():
+            return None
+        pos = match.end()
+        num, unit = match.groups()
         mins = _DELTA_UNITS.get(unit)
         if mins is None:
             return None
         total += int(num) * mins
         found = True
-    return total if found and total > 0 else None
+    return total if found and total > 0 and not text[pos:].strip() else None
 
 
 # Whole-unit durations the picker offers (a month is treated as 30 days).
@@ -198,11 +204,14 @@ class LinkStore:
         self._edges = set()
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeError, json.JSONDecodeError):
             return
         if not isinstance(data, dict):
             return
-        for pair in data.get("links", []) or []:
+        pairs = data.get("links", [])
+        if not isinstance(pairs, list):
+            return
+        for pair in pairs:
             if not isinstance(pair, list) or len(pair) != 2:
                 continue
             a = EntityRef.from_list(pair[0])

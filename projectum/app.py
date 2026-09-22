@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
 
@@ -106,8 +107,9 @@ def load_state() -> dict:
     if not p.exists():
         return {}
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, UnicodeError, OSError):
         return {}
 
 
@@ -134,7 +136,7 @@ def load_fsids(resolved_root: str) -> dict:
         data = json.loads(_fsids_path().read_text(encoding="utf-8"))
         entry = data.get(resolved_root) if isinstance(data, dict) else None
         return entry if isinstance(entry, dict) else {}
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, UnicodeError, OSError):
         return {}
 
 
@@ -143,7 +145,7 @@ def save_fsids(resolved_root: str, fsids: dict) -> None:
     try:
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, UnicodeError, OSError):
             data = {}
         if not isinstance(data, dict):
             data = {}
@@ -174,6 +176,7 @@ class MainWindow(QMainWindow):
         self._loading_details = False
         self._size_pool = QThreadPool.globalInstance()
         self._size_pending_for: str | None = None
+        self._probe_generation = 0
         self._row_items: dict[str, QListWidgetItem] = {}
         self._tag_editor: TagEditor | None = None
         # Generation guard so out-of-order async index scans can't clobber a
@@ -1644,6 +1647,8 @@ class MainWindow(QMainWindow):
         if not self.store:
             return
         cur_name = self.current_project.name if self.current_project else None
+        cur_playlist = self.current_playlist.id if self.current_playlist else None
+        cur_note = self.current_note.id if self.current_note else None
         self._flush_pending_writes()
         before = self._project_snapshot()
         self.store.load()
@@ -1652,14 +1657,30 @@ class MainWindow(QMainWindow):
         after = self._project_snapshot()
         if before == after and not renamed:
             return
+        cur_name = dict(self.store.last_renames).get(cur_name, cur_name)
+        if cur_name not in self.store.projects:
+            self.current_project = None
+            cur_name = None
         self._full_rebuild_list(preserve_name=cur_name)
         self._rebuild_playlists_list()
+        playlist_item = self._playlist_items.get(cur_playlist)
+        if playlist_item is not None:
+            self.playlists_list_widget.setCurrentItem(playlist_item)
+        else:
+            self._on_playlist_select(None, None)
         self._rebuild_todo_list()
+        self._rebuild_notes_list()
+        self._on_notes_search_changed(self.notes_search_input.text())
+        note_item = self._note_items.get(cur_note)
+        if note_item is not None:
+            self.notes_list_widget.setCurrentItem(note_item)
+        else:
+            self._on_note_select(None)
         self._update_stats()
-        if renamed:
-            self._rebuild_index_async()
-            if getattr(self, "current_tab", None) == "calendar":
-                self._refresh_calendar()
+        self._update_tag_filter_label()
+        self._rebuild_index_async()
+        if getattr(self, "current_tab", None) == "calendar":
+            self._refresh_calendar()
 
     def _apply_root_move(self) -> None:
         """Recognise the open folder by its stable workspace id. If that id was
@@ -1710,26 +1731,13 @@ class MainWindow(QMainWindow):
     def _project_snapshot(self) -> tuple:
         if not self.store:
             return ()
-        projects = tuple(
-            (name, p.completed, p.notes, tuple(p.tags), p.pinned, p.position,
-             p.tested, p.suspended, p.failed)
-            for name, p in self.store.projects.items()
+        return (
+            {name: asdict(p) for name, p in self.store.projects.items()},
+            [asdict(pl) for pl in self.store.playlists],
+            [asdict(t) for t in self.store.todos],
+            [asdict(n) for n in self.store.note_docs],
+            dict(self.store.tag_colors), dict(self.store.expansions),
         )
-        playlists = tuple(
-            (
-                pl.id, pl.title, pl.uploader, pl.notes, tuple(pl.tags),
-                pl.pinned, pl.position,
-                tuple(
-                    (v.id, v.title, v.completed, v.notes, v.unavailable)
-                    for v in pl.videos
-                ),
-            )
-            for pl in self.store.playlists
-        )
-        todos = tuple(
-            (t.id, t.text, t.done, t.position) for t in self.store.todos
-        )
-        return (projects, playlists, todos)
 
     # ─── Listing ─────────────────────────────────────────────────
 
@@ -2192,21 +2200,23 @@ class MainWindow(QMainWindow):
         self._populate_related(self.project_related, self.project_related_wrap,
                                make_ref("project", str(self.store.root), p.name))
         # Kick off async size + git probes off the UI thread.
-        self._size_pending_for = p.name
-        runnable = SizeRunnable(p.name, Path(p.path))
+        # Probe identity must distinguish both folders and successive requests.
+        self._probe_generation += 1
+        self._size_pending_for = str(self._probe_generation)
+        runnable = SizeRunnable(self._size_pending_for, Path(p.path))
         runnable.signals.done.connect(self._on_size_done)
         self._size_pool.start(runnable)
-        git = GitRunnable(p.name, Path(p.path))
+        git = GitRunnable(self._size_pending_for, Path(p.path))
         git.signals.done.connect(self._on_git_done)
         self._size_pool.start(git)
 
     def _on_size_done(self, name: str, size: int) -> None:
-        if not self.current_project or self.current_project.name != name:
+        if not self.current_project or self._size_pending_for != name:
             return
         self.size_box._value.setText(self._format_size(size))  # type: ignore[attr-defined]
 
     def _on_git_done(self, name: str, info) -> None:
-        if not self.current_project or self.current_project.name != name:
+        if not self.current_project or self._size_pending_for != name:
             return
         val = self.git_box._value  # type: ignore[attr-defined]
         if not info:
@@ -2706,17 +2716,25 @@ class MainWindow(QMainWindow):
         self._size_pool.start(runnable)
 
     def _handle_fetch_done(self, url: str, data: dict) -> None:
-        entry = self._pending_fetches.pop(url, None)
+        entry = self._pending_fetches.get(url)
         if entry is None:
             return
-        _runnable, callback = entry
+        runnable, callback = entry
+        # An older request for the same URL may finish after a folder switch.
+        if self.sender() is not None and self.sender() is not runnable.signals:
+            return
+        self._pending_fetches.pop(url)
         callback(url, data, None)
 
     def _handle_fetch_failed(self, url: str, err: str) -> None:
-        entry = self._pending_fetches.pop(url, None)
+        entry = self._pending_fetches.get(url)
         if entry is None:
             return
-        _runnable, callback = entry
+        runnable, callback = entry
+        # An older request for the same URL may finish after a folder switch.
+        if self.sender() is not None and self.sender() is not runnable.signals:
+            return
+        self._pending_fetches.pop(url)
         callback(url, None, err)
 
     def _on_add_done(self, url: str, data: dict | None, err: str | None) -> None:
@@ -2813,17 +2831,19 @@ class MainWindow(QMainWindow):
         self.video_list_widget.blockSignals(True)
         self.video_list_widget.clear()
         self._video_items.clear()
-        for v in pl.videos:
+        self.current_video = None
+        for index, v in enumerate(pl.videos):
             row = VideoRow(v)
             row.completion_changed.connect(
-                lambda checked, vid=v.id: self._on_video_completion(vid, checked)
+                lambda checked, video=v: self._on_video_completion(video, checked)
             )
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, v.id)
+            item.setData(Qt.ItemDataRole.UserRole + 1, index)
             item.setSizeHint(QSize(0, row.sizeHint().height()))
             self.video_list_widget.addItem(item)
             self.video_list_widget.setItemWidget(item, row)
-            self._video_items[v.id] = item
+            self._video_items.setdefault(v.id, item)
         self.video_list_widget.blockSignals(False)
 
     def _on_video_select(self, current, _previous) -> None:
@@ -2834,8 +2854,8 @@ class MainWindow(QMainWindow):
             self.current_video = None
             self._set_video_notes_state(None)
             return
-        vid = current.data(Qt.ItemDataRole.UserRole)
-        video = next((v for v in self.current_playlist.videos if v.id == vid), None)
+        index = current.data(Qt.ItemDataRole.UserRole + 1)
+        video = self.current_playlist.videos[index]
         self.current_video = video
         self._set_video_notes_state(video)
 
@@ -2876,7 +2896,7 @@ class MainWindow(QMainWindow):
         self.store.save()
         has_notes = bool(new_notes.strip())
         if has_notes != had_notes:
-            self._update_video_row_notes(self.current_video.id, has_notes)
+            self._update_video_row_notes(self.current_video, has_notes)
 
     def _on_playlist_notes_changed(self) -> None:
         if self._loading_playlist_details or self.current_playlist is None:
@@ -2904,21 +2924,19 @@ class MainWindow(QMainWindow):
         if isinstance(row, PlaylistRow):
             row.set_has_notes(has_notes)
 
-    def _update_video_row_notes(self, vid: str, has_notes: bool) -> None:
-        item = self._video_items.get(vid)
-        if not item:
-            return
-        row = self.video_list_widget.itemWidget(item)
-        if isinstance(row, VideoRow):
-            row.set_has_notes(has_notes)
+    def _update_video_row_notes(self, video: Video, has_notes: bool) -> None:
+        for index, candidate in enumerate(self.current_playlist.videos):
+            if candidate is video:
+                item = self.video_list_widget.item(index)
+                row = self.video_list_widget.itemWidget(item)
+                if isinstance(row, VideoRow):
+                    row.set_has_notes(has_notes)
+                break
 
-    def _on_video_completion(self, vid: str, checked: bool) -> None:
+    def _on_video_completion(self, video: Video, checked: bool) -> None:
         if not self.current_playlist or not self.store:
             return
-        video = next(
-            (v for v in self.current_playlist.videos if v.id == vid), None
-        )
-        if not video:
+        if not any(v is video for v in self.current_playlist.videos):
             return
         video.completed = checked
         self.store.save()
@@ -3055,6 +3073,8 @@ class MainWindow(QMainWindow):
     def _refresh_current_playlist(self) -> None:
         if not self.current_playlist:
             return
+        if self.current_playlist.url in self._pending_fetches:
+            return
         pid = self.current_playlist.id
         self._refreshing_playlist_ids.add(pid)
         self._sync_refresh_button()
@@ -3076,10 +3096,11 @@ class MainWindow(QMainWindow):
             self._refreshing_playlist_ids.discard(refreshed_id)
         # Reflect the current selection's refresh state on the shared button.
         self._sync_refresh_button()
-        # Resolve the playlist that was ACTUALLY refreshed by its URL. The user
+        # Resolve the playlist by the identity captured when fetching. The user
         # may have selected a different playlist while the fetch was in flight;
         # merging into self.current_playlist would corrupt the wrong one.
-        target = next((pl for pl in self.store.playlists if pl.url == url), None)
+        target = (self.store.get_playlist(refreshed_id) if refreshed_id is not None
+                  else next((pl for pl in self.store.playlists if pl.url == url), None))
         is_current = target is not None and self.current_playlist is target
         if err or not data:
             # Only surface the error if the refreshed playlist is still shown.
@@ -3603,14 +3624,19 @@ class MainWindow(QMainWindow):
         lk.triggered.connect(lambda: self._open_links_dialog(ref, item.title or ref.key))
         menu.addAction(lk)
         if item.start:
-            rm = QAction("Remove from this day", menu)
-            rm.triggered.connect(lambda: self._unlink_date(ref, item.start))
+            rm = QAction("Remove from calendar", menu)
+            rm.triggered.connect(lambda: self._unlink_date(ref, item.start, item.end))
             menu.addAction(rm)
         menu.exec(global_pos)
 
-    def _unlink_date(self, ref, iso: str) -> None:
-        if self._link_store.remove(ref, links_mod.date_ref(iso)):
-            self._refresh_calendar()
+    def _unlink_date(self, ref, iso: str, end: str = "") -> None:
+        # A one-day range and a date have the same visual representation.
+        temporal = links_mod.daterange_ref(iso, end or iso)
+        changed = self._link_store.remove(ref, temporal)
+        if not end or end == iso:
+            changed = self._link_store.remove(ref, links_mod.date_ref(iso)) or changed
+        if changed:
+            self._on_links_changed()
 
     # ─── Quick relate (context-menu shortcuts) ───────────────────
 

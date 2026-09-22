@@ -21,8 +21,14 @@ def _as_int(value, default: int = 0) -> int:
     """Coerce a persisted value to int, falling back on bad/missing data."""
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
+
+
+def _as_duration(value) -> int | None:
+    """Missing or invalid video durations are displayed as unknown."""
+    duration = _as_int(value, -1)
+    return duration if duration >= 0 else None
 
 
 def _as_str(value, default: str = "") -> str:
@@ -146,14 +152,14 @@ class Playlist:
         merged: list[Video] = []
 
         for v in new_videos:
-            vid = v.get("id") or ""
+            vid = _as_str(v.get("id"))
             if not vid:
                 continue
             bucket = existing.get(vid)
             if bucket:
                 e = bucket.popleft()
                 e.title = v.get("title", e.title)
-                e.duration = v.get("duration", e.duration)
+                e.duration = _as_duration(v.get("duration", e.duration))
                 e.url = v.get("url", e.url)
                 e.unavailable = False
                 merged.append(e)
@@ -163,7 +169,7 @@ class Playlist:
                         id=vid,
                         title=v.get("title") or "(no title)",
                         url=v.get("url") or f"https://www.youtube.com/watch?v={vid}",
-                        duration=v.get("duration"),
+                        duration=_as_duration(v.get("duration")),
                     )
                 )
 
@@ -245,6 +251,7 @@ class ProjectStore:
         self.prior_fsids: dict[str, tuple] = {
             k: tuple(v) for k, v in (prior_fsids or {}).items()
             if isinstance(v, (list, tuple)) and len(v) == 3
+            and all(isinstance(n, int) for n in v)
         }
         self.fsids: dict[str, tuple] = {}
         self.load()
@@ -309,7 +316,7 @@ class ProjectStore:
         if self.store_path.exists():
             try:
                 data = json.loads(self.store_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, UnicodeError, OSError):
                 data = {}
         # A structurally-valid-but-wrong-typed file (e.g. a top-level list)
         # must not abort the whole load.
@@ -459,7 +466,7 @@ class ProjectStore:
         for pdata in raw_playlists:
             if not isinstance(pdata, dict):
                 continue
-            pid = pdata.get("id") or uuid.uuid4().hex
+            pid = _as_str(pdata.get("id")) or uuid.uuid4().hex
             existing_pl = existing_playlists.get(pid)
             # Bucket existing video instances by id (FIFO) so repeated ids
             # don't collapse onto one shared object on reload.
@@ -468,10 +475,13 @@ class ProjectStore:
                 for ev in existing_pl.videos:
                     existing_videos.setdefault(ev.id, deque()).append(ev)
             videos: list[Video] = []
-            for v in (pdata.get("videos") or []):
+            raw_videos = pdata.get("videos")
+            if not isinstance(raw_videos, list):
+                raw_videos = []
+            for v in raw_videos:
                 if not isinstance(v, dict):
                     continue
-                vid = v.get("id") or ""
+                vid = _as_str(v.get("id"))
                 if not vid:
                     continue
                 bucket = existing_videos.get(vid)
@@ -479,7 +489,7 @@ class ProjectStore:
                 if ev is not None:
                     ev.title = _as_str(v.get("title"), "(no title)")
                     ev.url = _as_str(v.get("url"), "")
-                    ev.duration = v.get("duration")
+                    ev.duration = _as_duration(v.get("duration"))
                     ev.completed = bool(v.get("completed", False))
                     ev.notes = str(v.get("notes", ""))
                     ev.unavailable = bool(v.get("unavailable", False))
@@ -489,7 +499,7 @@ class ProjectStore:
                         id=vid,
                         title=_as_str(v.get("title"), "(no title)"),
                         url=_as_str(v.get("url"), ""),
-                        duration=v.get("duration"),
+                        duration=_as_duration(v.get("duration")),
                         completed=bool(v.get("completed", False)),
                         notes=str(v.get("notes", "")),
                         unavailable=bool(v.get("unavailable", False)),
@@ -534,7 +544,7 @@ class ProjectStore:
         for tdata in raw_todos:
             if not isinstance(tdata, dict):
                 continue
-            tid = tdata.get("id") or uuid.uuid4().hex
+            tid = _as_str(tdata.get("id")) or uuid.uuid4().hex
             et = existing_todos.get(tid)
             text = _as_str(tdata.get("text"), "")
             done = bool(tdata.get("done", False))
@@ -561,7 +571,7 @@ class ProjectStore:
             for ndata in raw_note_docs:
                 if not isinstance(ndata, dict):
                     continue
-                nid = ndata.get("id") or uuid.uuid4().hex
+                nid = _as_str(ndata.get("id")) or uuid.uuid4().hex
                 title = _as_str(ndata.get("title"))
                 body = str(ndata.get("body", ""))
                 position = _as_int(ndata.get("position", 0))
@@ -745,7 +755,7 @@ class ProjectStore:
         """
         in_use = set(self.all_tags())
         for orphan_data in self.orphans.values():
-            in_use.update(orphan_data.get("tags") or [])
+            in_use.update(_as_str_list(orphan_data.get("tags")))
         removed = [t for t in self.tag_colors if t not in in_use]
         for t in removed:
             del self.tag_colors[t]
@@ -773,7 +783,7 @@ class ProjectStore:
                         f"https://www.youtube.com/watch?v={v.get('id')}"
                         if v.get("id") else ""
                     ),
-                    duration=v.get("duration"),
+                    duration=_as_duration(v.get("duration")),
                 )
                 for v in (fetched.get("videos") or [])
                 if v.get("id")

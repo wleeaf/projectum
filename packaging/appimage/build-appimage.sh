@@ -33,7 +33,7 @@ cp "${HERE}/projectum.desktop" "${RECIPE}/"
 cp "${HERE}/projectum.png" "${RECIPE}/"
 WHEEL="$(ls "${RECIPE}"/projectum-*.whl)"
 cat > "${RECIPE}/requirements.txt" <<EOF
-PySide6>=6.5
+PySide6-Essentials>=6.5
 yt-dlp>=2024.0
 ${WHEEL}
 EOF

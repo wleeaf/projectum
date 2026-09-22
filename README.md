@@ -60,8 +60,26 @@ bars across the weeks.
 
 ## Install
 
+Use a virtual environment with 64-bit CPython 3.10 or newer. The compatible
+Python version also depends on your OS and the available PySide6 wheels; see
+[installation requirements and troubleshooting](docs/installation.md).
+
+Linux / macOS:
+
 ```bash
-pip install projectum && projectum
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install projectum
+.venv/bin/projectum
+```
+
+Windows (PowerShell or Command Prompt):
+
+```text
+py -m venv .venv
+.venv\Scripts\python -m pip install --upgrade pip
+.venv\Scripts\python -m pip install projectum
+.venv\Scripts\projectum
 ```
 
 Or a package manager:
@@ -132,9 +150,11 @@ place and offers a one-click restart (off by a toggle in Settings).
 
 ## Development
 
-Dependencies are thin: `PySide6`, `yt-dlp`, and the standard library. CI
+Dependencies are `PySide6-Essentials`, `yt-dlp`, and the standard library. CI
 lints, byte-compiles, runs the test suite, and boots the window headless on
-Linux/macOS/Windows across Python 3.10–3.12.
+Linux/macOS/Windows across Python 3.10–3.14. It also installs the wheel and
+source distribution in a clean environment and boots the installed entry point
+outside the checkout before publishing to PyPI.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate

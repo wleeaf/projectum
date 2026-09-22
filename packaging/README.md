@@ -13,7 +13,9 @@ Scaffolding for shipping Projectum on multiple platforms. Each channel is a
 | **AUR** | [aur.archlinux.org/packages/projectum](https://aur.archlinux.org/packages/projectum) | — | **Live** — `yay -S projectum` |
 | **Flathub** | `flatpak/` | — | Declined — AI policy (manifest kept as reference) |
 
-Verified locally: `projectum` is free on PyPI, and `python -m build` + `twine check` pass.
+PyPI publication waits for the cross-platform CI checks, including installation
+and launch of both release artifacts in a clean virtual environment. See
+[installation troubleshooting](../docs/installation.md) for platform constraints.
 
 ## PyPI — `pip install projectum`
 
@@ -23,7 +25,7 @@ Verified locally: `projectum` is free on PyPI, and `python -m build` + `twine ch
    - Owner: `wleeaf` · Repository: `projectum`
    - Workflow filename: `publish-pypi.yml` · Environment: *(leave blank)*
 2. Publish a GitHub release (or run the workflow manually). `publish-pypi.yml`
-   builds the sdist + wheel and uploads via OIDC.
+   validates installation, builds the sdist + wheel, and uploads via OIDC.
 
 Manual one-off (needs a token): `python -m build && twine upload dist/*`.
 

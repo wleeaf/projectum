@@ -105,6 +105,8 @@ def _is_externally_managed() -> bool:
     refused. Mirrors pip's own check, so it predicts whether a pip self-update
     would actually succeed. A virtualenv is never marked, so source/pip installs
     in a venv stay upgradable."""
+    if sys.prefix != sys.base_prefix or hasattr(sys, "real_prefix"):
+        return False
     for key in ("stdlib", "platstdlib"):
         try:
             path = sysconfig.get_path(key)
@@ -159,7 +161,7 @@ def _apply_appimage(tag: str) -> tuple[bool, str]:
     # Download beside the target so os.replace stays atomic (same filesystem).
     fd, tmp = tempfile.mkstemp(prefix=".projectum-update-", dir=target.parent)
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp, os.fdopen(fd, "wb") as out:
+        with os.fdopen(fd, "wb") as out, urllib.request.urlopen(req, timeout=120) as resp:
             shutil.copyfileobj(resp, out)
         os.chmod(tmp, 0o755)
         os.replace(tmp, target)

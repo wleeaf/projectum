@@ -3,6 +3,30 @@
 All notable changes to Projectum are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] — 2026-09-22
+
+### Fixed
+
+- Refresh now updates notes and playlist details, clears deleted selections, and detects changes to all displayed metadata.
+- Repeated videos in a playlist keep independent completion and notes in the UI.
+- Late playlist fetches and project metadata probes can no longer overwrite a newer request or a different folder's data.
+- Calendar date ranges can be removed, and duration input rejects partial or malformed matches.
+- Invalid persisted IDs, collections, durations, encodings, and filesystem identities no longer crash the affected loaders.
+- Update detection correctly recognizes virtual environments, and failed AppImage downloads close their temporary file handles.
+
+### Changed
+
+- Require Qt Essentials instead of the full PySide6 bundle, avoiding unused Addons and reducing the Windows Qt download by about 169 MB with Qt 6.11.2.
+- Provide platform-specific virtual-environment installation instructions and a Windows compatibility audit.
+- Validate wheel and source installation outside the checkout across Python 3.10–3.14 on Linux, macOS, and Windows before publishing to PyPI.
+
+### Added
+
+- Launch with `python -m projectum` using the same interpreter as installation.
+- 28 regression cases covering the corrected behavior.
+
+[2.4.1]: https://github.com/wleeaf/projectum/releases/tag/v2.4.1
+
 ## [2.4.0] — 2026-06-18
 
 ### Added
